@@ -1,4 +1,4 @@
-import { bindings, defineConfig, triggers } from "cf/config";
+import { bindings, defineConfig, exports as workerExports, triggers } from "cf/config";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -33,6 +33,11 @@ export default defineConfig({
 				schedule: "* * * * *",
 			}),
 		],
+		exports: {
+			// 旧版初始化配置的 Durable Object 已删除；tombstone 用于清理仍存在的命名空间。
+			// The old setup configuration Durable Object is gone; the tombstone removes any existing namespace.
+			SetupConfiguration: workerExports.durableObject({ state: "deleted" }),
+		},
 		env: {
 			// CONFIG: bindings.kv({ id: "<KV namespace ID>" }),
 			PBKDF2_ITERATIONS: bindings.text("3000"),

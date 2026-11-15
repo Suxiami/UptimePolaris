@@ -4,6 +4,7 @@
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
+  "exports": { "SetupConfiguration": { "type": "durable-object", "state": "deleted" } },
   "analytics": { "binding": "ANALYTICS_SQL" },
   "assets": {
     "directory": "./public",

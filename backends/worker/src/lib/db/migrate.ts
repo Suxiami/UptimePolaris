@@ -33,6 +33,7 @@ const EXPECTED_PG_MIGRATIONS = [
   '0022_theme_operations.postgres.sql',
   '0023_settings_visibility.postgres.sql',
   '0024_presentation_refinements.postgres.sql',
+  '0025_agent_history_daily.postgres.sql',
 ] as const;
 
 export interface MigrateProbeResult {

@@ -8,6 +8,12 @@ compatibility_flags = ["nodejs_compat"]
 [analytics]
 binding = "ANALYTICS_SQL"
 
+# 旧版初始化配置使用的 Durable Object 已删除；保留 tombstone 让仍存在的命名空间可以清理。
+# The Durable Object used by the old setup configuration is gone; keep a tombstone so an existing namespace can be deleted.
+[exports.SetupConfiguration]
+type = "durable-object"
+state = "deleted"
+
 # npm run build 输出 public/；公开页 /，管理页 /admin。
 # npm run build writes public/; the public page is / and the console is /admin.
 [assets]
