@@ -18,7 +18,7 @@ function installFailureStatus(error: string): 400 | 409 | 413 | 502 | 503 {
   if (['no_storage', 'storage_write_failed', 'registry_write_failed'].includes(error)) return 503;
   if (error === 'download_failed') return 502;
   if (error === 'too_large' || error === 'package_too_large') return 413;
-  if (error === 'theme_id_short_conflict' || error === 'theme_id_changed' || error === 'theme_busy') return 409;
+  if (error === 'theme_id_short_conflict' || error === 'theme_id_changed' || error === 'theme_busy' || error === 'presentation_conflict' || error === 'theme_unavailable') return 409;
   return 400;
 }
 
@@ -32,7 +32,7 @@ themeRoutes.get('/api/themes', async c => {
   const db = getDB(c.env), storageReady = !!c.env.THEMES;
   const themes = await Promise.all((await listThemes(c.env)).map(async row => {
     const revisions = await db.query<{ version: string; prefix: string; manifest_json: string }>(themeSQL[db.type].versionsById, [row.id]);
-    const versions = await Promise.all(revisions.map(async revision => {
+    const versions = await Promise.all(revisions.slice(0, 1).map(async revision => {
       let parsed;
       try { parsed = parseManifest(JSON.parse(revision.manifest_json)); } catch { return null; }
       if (!parsed.ok || parsed.manifest.id !== row.id || parsed.manifest.short !== row.short) return null;

@@ -24,12 +24,6 @@ CREATE TABLE IF NOT EXISTS theme_catalogs (
 CREATE INDEX IF NOT EXISTS idx_theme_catalogs_position
   ON theme_catalogs(position, added_at);
 
-CREATE TABLE IF NOT EXISTS theme_settings (
-  short TEXT PRIMARY KEY,
-  values_json TEXT NOT NULL,
-  updated_at BIGINT NOT NULL
-);
-
 ALTER TABLE themes ADD COLUMN IF NOT EXISTS id TEXT;
 ALTER TABLE themes ADD COLUMN IF NOT EXISTS active_version TEXT;
 ALTER TABLE themes ADD COLUMN IF NOT EXISTS previous_active_version TEXT;

@@ -43,7 +43,7 @@ Includes a public status page and an admin console, in 9 languages.
 - HTTP checks verify the status code, JSON fields, response headers and response time. TCP checks verify the port opens, and can send a payload and match the reply.
 - The Go backend also checks UDP, ICMP, DNS, TLS and WebSocket directly. On the Worker, UDP and ICMP checks run through an Agent.
 - Additional checks cover SSL certificate expiry, domain expiry and DNS records.
-- Push monitors get a dedicated URL; a scheduled job posts to it and a missed post is reported as down.
+- Push monitors get a dedicated reporting URL and key. A scheduled task sends authenticated POST requests; missed heartbeats are reported as down.
 - The shortest interval is 60 seconds on the Worker and 5 seconds on Go. When a target is only reachable on an internal network, pick an Agent as the check source.
 
 Monitor types and every field are in the [usage guide](docs/usage.md).
@@ -159,7 +159,7 @@ Install modes and platform differences are in the [Agent guide](docs/agents.md).
 
 ### Upgrade
 
-Back up the database first; the full procedure is in the [operations guide](docs/operations.md#upgrade).
+Back up the database and the `CONFIG` KV namespace first; the full procedure is in the [operations guide](docs/operations.md#upgrade).
 
 - **Cloudflare**: for a fork, select Sync fork on GitHub and Workers Builds redeploys automatically, keeping the bindings added in the dashboard. A deploy-button install needs the new version merged into the generated repository.
 - **Go**: stop the service and back up the data directory, replace the binary, then start it with the same data directory.
@@ -167,7 +167,7 @@ Back up the database first; the full procedure is in the [operations guide](docs
 
 ### Uninstall
 
-- **Cloudflare**: delete the Worker in the dashboard. The D1 database, R2 bucket and PostgreSQL database are not deleted with it; remove them separately if you no longer need them.
+- **Cloudflare**: delete the Worker in the dashboard. The D1 database, R2 bucket, KV namespace and Analytics Engine dataset are not deleted with it, nor is a PostgreSQL database; remove them separately if you no longer need them.
 - **Go**: stop the service, then delete the binary and the data directory. If you use PostgreSQL, drop that database as well.
 - **Agent**: download the install script from your site and run the uninstaller:
 
@@ -183,7 +183,7 @@ Back up the database first; the full procedure is in the [operations guide](docs
 - Data stays in your own deployment: D1 in your Cloudflare account or your PostgreSQL for the Worker, SQLite in the data directory or your PostgreSQL for Go.
 - The status page and public API need no login. Monitor names, the host and path of HTTP targets, and the host and port of TCP targets are public, so do not put internal addresses or secrets in them.
 - Usernames, passwords and query strings in HTTP targets are removed; credentials and Agent tokens are never exposed.
-- The token in a Push URL is that monitor's reporting credential. Keep it private.
+- Each Push monitor has a separate reporting key. Send it in the `Authorization` header and keep it private; the URL contains no key.
 - For a monitor that should not be public, select "Hide from status page" in the monitor list and it stays admin-only.
 - The Worker's SSL check queries public certificate transparency logs, and the Agent looks up the region of the machine's public IP at startup and contacts GitHub for updates.
 
@@ -192,16 +192,16 @@ Which fields the public pages and API return is described in [public data](docs/
 ## FAQ
 
 **The setup page stops at the deployment check and will not continue.**
-Configure the required `ADMIN_TOKEN` and `UPTIME` in the Worker’s **Settings**, save and deploy, then select "Check again". D1 and R2 are optional; without D1, configure the PostgreSQL connection in the next step.
+Configure the required `ADMIN_TOKEN`, `UPTIME` and `CONFIG` KV namespace in the Worker’s **Settings**, save and deploy, then select "Check again". D1 and R2 are optional; without D1, configure the PostgreSQL connection in the next step.
 
 **Opening a Push URL in a browser gives no data.**
-A browser sends GET and Push only accepts POST, so GET returns 405. Use `curl -X POST` or send the POST from the scheduled job.
+A browser sends GET, which returns 405. Use the POST example in the monitor’s edit form: send the reporting key in the `Authorization` header and the status in a JSON body.
 
 **A notification test succeeds but real outages produce nothing.**
 Check that the channel is enabled, that its group scope includes the monitor, and that no maintenance window is open. A channel with no groups selected receives every monitor.
 
 **An Agent shows as offline.**
-Run `pa status` and `pa logs -f` on the machine and confirm the service is running and can reach the site domain. Reports go out every 60 seconds by default, and about 3 minutes without one marks the machine offline.
+Run `pa status` and `pa logs -f` on the machine and confirm the service is running and can reach the site domain. The Worker backend expects a report every 60 seconds by default; the Go backend reports once per sample (5 seconds by default). A machine is offline after three report intervals (30–3600 seconds), so about 180 seconds applies only at the 60-second Worker default.
 
 More cases are in [troubleshooting](docs/troubleshooting.md). If a problem remains, open an [issue](https://github.com/XingLingQAQ/UptimePolaris/issues).
 

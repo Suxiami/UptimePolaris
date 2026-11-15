@@ -85,6 +85,21 @@ func (a *App) validateMonitor(t *transaction, input, stored Object) (Object, err
 		return nil, err
 	}
 	kind := str(m, "type")
+	credentials := object(input["push_credentials"])
+	if _, supplied := input["push_credentials"]; supplied {
+		if kind != "push" || !validPushCredentials(credentials) || stored != nil && (str(stored, "type") == "push" || str(credentials, "id") != str(stored, "id")) {
+			return nil, failure("invalid_request", 400)
+		}
+	}
+	if kind == "push" {
+		if stored != nil && str(stored, "type") != "push" {
+			if _, supplied := input["options_json"]; !supplied {
+				m["options_json"] = "{}"
+			}
+		}
+		m["agent_id"] = nil
+		m["check_ssl"], m["check_domain"], m["check_dns"] = 0, 0, 0
+	}
 	var o Object
 	switch v := m["options_json"].(type) {
 	case string:
@@ -159,8 +174,12 @@ func (a *App) validateMonitor(t *transaction, input, stored Object) (Object, err
 		return nil, failure("icmp_permission_unavailable", 400)
 	}
 	if kind == "push" {
-		if str(m, "push_token") == "" {
-			m["push_token"] = token(24)
+		if stored == nil || str(stored, "type") != "push" || str(m, "push_token") == "" {
+			if credentials != nil {
+				m["push_token"] = credentials["push_token"]
+			} else {
+				m["push_token"] = token(24)
+			}
 		}
 	} else {
 		m["push_token"] = nil
@@ -388,6 +407,11 @@ func validateDNSMonitor(o Object) error {
 	if !contains([]string{"A", "AAAA", "CNAME", "MX", "TXT", "NS"}, str(dnsOptions, "recordType")) {
 		return failure("dns_options_invalid", 400)
 	}
+	if expected, exists := dnsOptions["expected"]; exists {
+		if err := validateDNSExpected(str(dnsOptions, "recordType"), expected); err != nil {
+			return err
+		}
+	}
 	if resolver := str(dnsOptions, "resolver"); resolver != "" {
 		if strings.HasPrefix(resolver, "https://") {
 			u, e := url.Parse(resolver)
@@ -429,6 +453,10 @@ func validateMonitorTaxonomy(t *transaction, m, input Object) error {
 }
 
 func (a *App) monitorRoutes() {
+	a.route("POST /api/monitors/push-credentials", false, func(w http.ResponseWriter, r *http.Request) error {
+		respond(w, 200, Object{"id": uuid(), "push_token": token(24)})
+		return nil
+	})
 	a.route("GET /api/monitors", false, func(w http.ResponseWriter, r *http.Request) error {
 		rows, e := a.store.list(r.Context(), "monitor")
 		if e != nil {
@@ -455,6 +483,14 @@ func (a *App) monitorRoutes() {
 				return e
 			}
 			id := uuid()
+			if credentials := object(input["push_credentials"]); credentials != nil {
+				id = str(credentials, "id")
+				if existing, err := t.get("monitor", id); err != nil {
+					return err
+				} else if existing != nil {
+					return failure("conflict", 409)
+				}
+			}
 			num, e := t.next("monitor")
 			if e != nil {
 				return e
@@ -479,6 +515,7 @@ func (a *App) monitorRoutes() {
 		if e != nil {
 			return e
 		}
+		var saved Object
 		e = a.store.mutate(r.Context(), func(t *transaction) error {
 			id := r.PathValue("id")
 			m, e := t.get("monitor", id)
@@ -488,16 +525,27 @@ func (a *App) monitorRoutes() {
 			if m == nil {
 				return failure("not_found", 404)
 			}
-			m, e = a.validateMonitor(t, input, m)
+			saved, e = a.validateMonitor(t, input, m)
 			if e != nil {
 				return e
 			}
-			return t.put("monitor", id, m)
+			if str(saved, "type") != str(m, "type") && (str(saved, "type") == "push" || str(m, "type") == "push") {
+				for _, kind := range []string{"push", "live"} {
+					if e = t.remove(kind, id); e != nil {
+						return e
+					}
+				}
+			}
+			return t.put("monitor", id, saved)
 		})
 		if e != nil {
 			return e
 		}
-		respond(w, 200, Object{"ok": true})
+		result := Object{"ok": true}
+		if str(saved, "type") == "push" {
+			result["push_token"] = saved["push_token"]
+		}
+		respond(w, 200, result)
 		return nil
 	})
 	a.route("DELETE /api/monitors/{id}", false, func(w http.ResponseWriter, r *http.Request) error {
@@ -547,6 +595,9 @@ func (a *App) monitorRoutes() {
 		e = a.store.mutate(r.Context(), func(t *transaction) error { var e error; m, e = a.validateMonitor(t, input, nil); return e })
 		if e != nil {
 			return e
+		}
+		if str(m, "type") == "push" {
+			return failure("push_not_probeable", 409)
 		}
 		if source, _ := checkSource(m); source == "agent" {
 			respond(w, 200, CheckResult{Status: 2, Message: "agent probe result not available yet"})
@@ -910,14 +961,7 @@ func (a *App) passiveCheck(ctx context.Context, m Object) error {
 		if e != nil {
 			return e
 		}
-		if p != nil {
-			result.Status = int(integer(p, "status"))
-			result.Message = str(p, "message")
-			if now-integer(p, "ts") > integer(m, "interval_sec") {
-				result.Status = 0
-				result.Message = "push heartbeat expired"
-			}
-		}
+		result = pushReading(p, integer(m, "interval_sec"), now)
 	} else {
 		agent, e := a.store.get(ctx, "agent", str(m, "agent_id"))
 		if e != nil {

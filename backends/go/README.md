@@ -71,7 +71,7 @@ TLS 目标是 `host:port`，用 `warn_days` 控制证书到期预警。证书不
 {"headers":{"Authorization":"Bearer <目标凭据>"},"send":"ping","expect":"pong","check_source":{"type":"server"}}
 ```
 
-WebSocket 目标是 `ws://` 或 `wss://` URL。UDP 接受 `send`、`expect` 和 `encoding: "text" | "hex"`，发出去后必须收到应答。Push 只接受 POST，不使用 `ping` 参数，所有公开延迟字段保持 `null`。
+WebSocket 目标是 `ws://` 或 `wss://` URL。UDP 接受 `send`、`expect` 和 `encoding: "text" | "hex"`，发出去后必须收到应答。Push 使用 `POST /api/public/push/:id`，通过 `Authorization: Bearer <push_token>` 认证，JSON 请求体包含 `status` 和可选的 `message`；编辑页会显示地址、密钥和示例。Push 不测量延迟，公开延迟字段保持 `null`。
 
 账号、公开范围、分组标签、维护窗口、域名映射、通知和主题都在管理界面配置。`/api/admin/usage` 返回 Go 运行状态。
 
@@ -105,7 +105,7 @@ WebSocket 目标是 `ws://` 或 `wss://` URL。UDP 接受 `send`、`expect` 和 
 
 后台复制不会自动冻结源库或切换配置。源快照之后的写入不会同步到目标，不能用运行中服务的一次复制代替上面的停写窗口。
 
-远程迁移要求 TLS。只有回环 PostgreSQL 测试实例可以用 `sslmode=disable`。域名映射可以手动保存；Cloudflare 已绑定域名的查询在 Go 返回 `available: false`。
+远程迁移要求 TLS。只有回环 PostgreSQL 测试实例可以用 `sslmode=disable`。域名映射在控制台手动填写；保存前先完成 DNS 和服务器域名配置。
 
 ## Agent 与主题资产
 

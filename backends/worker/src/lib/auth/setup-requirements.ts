@@ -17,3 +17,8 @@ export function setupRequirements(env: Env): SetupRequirement[] {
     { key: 'analytics', required: true, ok: Boolean(env.UPTIME) },
   ];
 }
+
+/** Required items that are not configured; an empty list means setup may proceed. / 未满足的必需项；为空表示可以继续初始化。 */
+export function missingSetupRequirements(env: Env): SetupRequirement[] {
+  return setupRequirements(env).filter(item => item.required && !item.ok);
+}

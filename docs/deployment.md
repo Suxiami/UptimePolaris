@@ -95,7 +95,7 @@ npx cf r2 buckets create --name uptime-polaris-themes
 | R2（可选） | `THEMES` | 第三方主题 ZIP 解包后的版本资产 |
 | Analytics Engine（必需） | `UPTIME` | 原始观测与 SQL 回填 |
 
-只使用 PostgreSQL 时，可从两份手动配置中移除 `DB`，在初始化第二步填写连接地址。在两份配置中绑定已创建的 KV 命名空间，变量名使用 `CONFIG`。CF CLI 对应 `CONFIG: bindings.kv({ id: "<KV namespace ID>" })`，Wrangler 对应 `kv_namespaces` 的 `binding = "CONFIG"` 和实际 `id`。不用第三方主题，可从两份配置里删掉 `THEMES`。`UPTIME` 是 Worker 初始化的必需绑定，请保留。声明 Analytics Engine 之前，先在账号里启用该服务。保留配置中的 `ANALYTICS_SQL`，历史图表和每日归档通过该绑定读取数据，无需查询凭据。
+只使用 PostgreSQL 时，可从两份手动配置中移除 `DB`，并把 `DATABASE_TYPE` 改为 `postgres`（或直接删除，未绑定 `DB` 时默认按 PostgreSQL 处理），然后在初始化第二步填写连接地址。在两份配置中绑定已创建的 KV 命名空间，变量名使用 `CONFIG`。CF CLI 对应 `CONFIG: bindings.kv({ id: "<KV namespace ID>" })`，Wrangler 对应 `kv_namespaces` 的 `binding = "CONFIG"` 和实际 `id`。不用第三方主题，可从两份配置里删掉 `THEMES`。`UPTIME` 是 Worker 初始化的必需绑定，请保留。声明 Analytics Engine 之前，先在账号里启用该服务。保留配置中的 `ANALYTICS_SQL`，历史图表和每日归档通过该绑定读取数据，无需查询凭据。
 
 ## 配置部署
 
@@ -130,9 +130,9 @@ npx cf r2 buckets create --name uptime-polaris-themes
 
 ## Agent 下载
 
-安装器下载所选平台的最新稳定版本，并校验文件完整性。目标平台没有可用版本，或者 GitHub 访问不了，安装会失败。
+站点提供安装脚本，脚本在目标机器上识别系统和架构，直接读取 GitHub 最新稳定版的 `manifest.json`，下载同一版本的二进制并校验文件大小和 SHA-256。安装和重新安装无需站点后端查询或转发版本清单。
 
-安装和更新需要目标机器能访问 GitHub API 和 Release 下载地址。
+安装需要目标机器能访问 GitHub Release 下载地址；`pa update` 和自动更新还需要访问 GitHub API。目标平台没有可用版本，或 GitHub 访问失败时，安装会停止，不会跳过校验。
 
 ## 上传与初始化
 
@@ -159,7 +159,7 @@ Fork 部署和按钮部署的 D1 由 Worker 在请求时建表并应用迁移，
 
 打开站点地址，进入 `/setup`：
 
-1. **部署检查（仅 Worker）**：检查 `ADMIN_TOKEN` 和 Analytics Engine，D1、R2 为可选项。保存并部署缺少的配置后点击“重新检查”，必需项通过后继续。
+1. **部署检查（仅 Worker）**：检查必需的 `ADMIN_TOKEN`、`UPTIME` 和 `CONFIG` KV，D1、R2 为可选项。保存并部署缺少的配置后点击“重新检查”，必需项通过后继续。
 2. **数据库配置（仅 Worker）**：输入 `ADMIN_TOKEN`，选择数据库。PostgreSQL 可直接填写连接 URL；点击“验证并继续”，连接和建表通过后进入最后一步。
 3. **管理员账号**：设置用户名、密码和可选的站点名称，创建后进入 `/admin`。Go 后端仍在同一张表单中填写初始化凭据、数据库和账号信息。后续从 `/login` 登录。
 
@@ -225,7 +225,7 @@ npm run db:migrate:postgres
 - Push POST 生效，GET 不产生心跳。
 - `/install.sh` 和 `/install.ps1` 返回脚本，目标平台的清单和二进制能下载。
 - Agent 首次上报可见；通知测试成功，分组范围符合预期。
-- 启用主题时，上传、预览和激活可用；启用 AE 时，回填状态和凭据一致。
+- 启用主题时，上传、预览和激活可用；启用 AE 时，回填状态正常（`ANALYTICS_SQL` 绑定可用）。
 
 服务没有数据时，先查调度和请求结果，见[常见问题](troubleshooting.md)。
 
@@ -243,7 +243,7 @@ Fork and button deployments require a Cloudflare account and a GitHub account. M
 2. In the Cloudflare dashboard, open **Workers & Pages → Create application → GitHub** and select your fork. Set the build command to `npm run build` and the deploy command to `npm run deploy`.
 3. When the deployment finishes, open the site. The first step of setup is a deployment check, and each item that fails says how to configure it:
    - **D1 (optional)**: to use D1, add a D1 database in the Worker's **Settings → Bindings** with the variable name `DB`. This binding is not required to continue to the next step.
-   - **KV (required for page-entered PostgreSQL)**: add a KV namespace under **Settings → Bindings** with variable name `CONFIG`. Optional with only D1 or a deployment URL.
+   - **KV (required)**: add a KV namespace under **Settings → Bindings** with variable name `CONFIG`. Setup stores the database selection and the encrypted connection URL there, and console settings use it too.
    - **`ADMIN_TOKEN` (required)**: in **Settings → Variables and Secrets**, add a secret with a long random value.
    - **`THEMES` (optional)**: to install third-party themes, add an R2 bucket in **Settings → Bindings**.
    - **`UPTIME` (required)**: enable Analytics Engine in the dashboard, then add a dataset binding.
@@ -277,7 +277,7 @@ Agent installation requires access to GitHub downloads. See [Agent downloads](#a
 
 Authenticate the CF CLI with `npx cf auth login`. For a new installation using D1, create a database with `npx cf d1 create --name uptime-polaris`; if using third-party themes, create an R2 bucket with `npx cf r2 buckets create --name uptime-polaris-themes`. Existing resources need not be recreated. Enable Analytics Engine in the account before declaring the required `UPTIME` binding.
 
-Keep `backends/worker/cloudflare.config.ts` (CF CLI deployment) and `backends/worker/wrangler.toml` (database tools) aligned on the intended resources, variables and schedules. Keep bindings `DB`, `ASSETS`, `THEMES`, `UPTIME`, `ANALYTICS_SQL` and `CONFIG` unchanged where used. For PostgreSQL-only deployment, remove `DB` from both manual configurations and enter the connection URL in setup step two. Bind an existing KV namespace as `CONFIG` in both manual configurations: `CONFIG: bindings.kv({ id: "<KV namespace ID>" })` for CF CLI, or a `kv_namespaces` entry with `binding = "CONFIG"` and the real namespace ID for Wrangler. `ASSETS` serves `public/`; R2 stores third-party theme files, while Analytics Engine provides raw observations and SQL backfill. R2 is optional; built-in themes work without it. The `UPTIME` binding is required for Worker setup. Keep the included `ANALYTICS_SQL` binding for history charts and daily archives; no query credentials are needed.
+Keep `backends/worker/cloudflare.config.ts` (CF CLI deployment) and `backends/worker/wrangler.toml` (database tools) aligned on the intended resources, variables and schedules. Keep bindings `DB`, `ASSETS`, `THEMES`, `UPTIME`, `ANALYTICS_SQL` and `CONFIG` unchanged where used. For PostgreSQL-only deployment, remove `DB` from both manual configurations and set `DATABASE_TYPE` to `postgres` (or remove it, since PostgreSQL is the default without `DB`), then enter the connection URL in setup step two. Bind an existing KV namespace as `CONFIG` in both manual configurations: `CONFIG: bindings.kv({ id: "<KV namespace ID>" })` for CF CLI, or a `kv_namespaces` entry with `binding = "CONFIG"` and the real namespace ID for Wrangler. `ASSETS` serves `public/`; R2 stores third-party theme files, while Analytics Engine provides raw observations and SQL backfill. R2 is optional; built-in themes work without it. The `UPTIME` binding is required for Worker setup. Keep the included `ANALYTICS_SQL` binding for history charts and daily archives; no query credentials are needed.
 
 The root `wrangler.jsonc` is used by fork and button deployments and is independent of the manual configuration. Direct Wrangler commands prefer it when both formats exist. For the manual environment, explicitly use `--config backends/worker/wrangler.toml` with direct database commands and check the account, database name and ID. Keep SPA fallback and the `runWorkerFirst` / `run_worker_first` route array. Cloudflare serves built-in JS, CSS, fonts and images directly, without invoking the Worker. APIs, installers, server-handled pages, `/theme/*` and `/polaris-maintenance.js` still use the Worker.
 
@@ -293,15 +293,15 @@ Manual deployment uses CF CLI; fork and button deployments run Wrangler with the
 
 ### Agent downloads
 
-The installer downloads the latest stable version for the selected platform and verifies file integrity. Installation fails if the release or platform asset is missing or GitHub is unreachable.
+The site serves the installation script. On the target machine, the script detects the OS and architecture, reads `manifest.json` from the latest stable GitHub Release, downloads the matching version, and verifies its size and SHA-256. Installation and reinstallation do not depend on a backend release lookup or proxy.
 
-Installation and updates require the target machine to reach the GitHub API and release download addresses.
+Installation requires access to GitHub Release downloads. `pa update` and automatic updates also need access to the GitHub API. A missing platform asset or failed GitHub connection stops installation; verification is never skipped.
 
 ### Database setup and initialization
 
 An empty D1 can establish its schema on the first request. A Worker request can also apply pending migrations to a D1 with a migration ledger. Before upgrading, back up and review migrations in an isolated environment. To apply them before deploying to the manual target, authenticate Wrangler and run `npm run db:init` after confirming the TOML account and database. For fork and button deployments, the Worker creates tables and applies migrations on request; no migration command is needed. Migrations do not create an account.
 
-Open `/setup`. Worker setup has three steps: check the required `ADMIN_TOKEN` and `UPTIME` bindings, configure and verify the database, then create the administrator account. D1 and R2 are optional. Enter `ADMIN_TOKEN` in the database step. Verification initializes an empty database but does not create an account. A username has 2–32 letters, digits or `._-`, normalized to lowercase; a password has at least 8 characters. After setup, use `/login`. Go keeps its single initialization form.
+Open `/setup`. Worker setup has three steps: check the required `ADMIN_TOKEN`, `UPTIME` and `CONFIG` KV bindings, configure and verify the database, then create the administrator account. D1 and R2 are optional. Enter `ADMIN_TOKEN` in the database step. Verification initializes an empty database but does not create an account. A username has 2–32 letters, digits or `._-`, normalized to lowercase; a password has at least 8 characters. After setup, use `/login`. Go keeps its single initialization form.
 
 Without D1, Worker offers PostgreSQL only and accepts its URL directly on the page. With D1, either database is available. Bind `CONFIG` KV to store page-entered connections encrypted, with or without D1. Setup state remains in the target database. During propagation, keep the page open and click “Verify and continue” again later. The final step creates the administrator and session in the selected database, which remains active after restarts. Keep connection URLs out of screenshots and public logs. See the [setup API contract](api.md#setup-database-contract).
 

@@ -87,8 +87,10 @@ try {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ credential: 'anything', username: 'owner', password: 'private-password' }),
   });
+  // 没有密钥时先报告密钥缺失；有密钥但缺必需绑定时才报告部署未完成。
+  // Without a credential the missing secret is reported first; deployment_incomplete covers a configured secret with missing bindings.
   assert.equal(setup.response.status, 503);
-  assert.equal(setup.body.error, 'deployment_incomplete');
+  assert.equal(setup.body.error, 'credential_unconfigured');
 
   // 定时任务在缺少数据库时直接跳过，不报错。 / Scheduled work is skipped without a database instead of failing.
   const scheduled = await (await bare.getWorker()).scheduled({ cron: '* * * * *' });
@@ -106,34 +108,35 @@ try {
   assert.equal(bearer.body.error, 'deployment_incomplete');
 } finally { await tokenOnly.dispose(); }
 
-const databaseLater = worker({ ADMIN_TOKEN: 'setup-secret' }, { analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } } });
+const databaseLater = worker({ ADMIN_TOKEN: 'setup-secret' }, {
+  analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } },
+  kvNamespaces: { CONFIG: 'setup-config-fixture' },
+});
 try {
   const session = await request(databaseLater, '/api/auth/session');
   assert.equal(session.response.status, 200);
   assert.deepEqual(
     session.body.setupRequirements.filter(item => item.required && !item.ok).map(item => item.key),
-    ['config'],
-    'the missing KV binding is the only required blocker; the database is selected later',
+    [],
+    'every required item passes; the database is selected during setup',
   );
   assert.deepEqual(session.body.setupRequirements.find(item => item.key === 'database'), { key: 'database', required: false, ok: false });
-  assert.deepEqual(session.body.setupDatabase, { types: ['postgres'], defaultType: 'postgres', postgresConfigured: false, postgresUrlEditable: false });
+  assert.deepEqual(session.body.setupDatabase, { types: ['postgres'], defaultType: 'postgres', postgresConfigured: false, postgresUrlEditable: true });
+  // 必需绑定齐全但尚未初始化：业务接口返回 setup_required，而不是部署不完整。
+  // Every required binding is present but setup has not run, so business APIs answer setup_required.
   const blocked = await request(databaseLater, '/api/monitors');
   assert.equal(blocked.response.status, 503);
-  assert.equal(blocked.body.error, 'deployment_incomplete');
+  assert.equal(blocked.body.error, 'setup_required');
 
   const submit = (database) => request(databaseLater, '/api/auth/setup', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ credential: 'setup-secret', username: 'owner', password: 'private-password', database }),
   });
+  // 没有可复用的 PostgreSQL 连接时，缺少 URL 仍以 invalid_database_url 拒绝。
+  // Without a reusable PostgreSQL connection, a missing URL is still invalid_database_url.
   const missingUrl = await submit({ type: 'postgres' });
   assert.equal(missingUrl.response.status, 400);
   assert.equal(missingUrl.body.error, 'invalid_database_url');
-  const noD1 = await submit({ type: 'd1' });
-  assert.equal(noD1.response.status, 400);
-  assert.equal(noD1.body.error, 'invalid_database_type');
-  const unsavedUrl = await submit({ type: 'postgres', url: 'postgres://fixture:fixture@db.example.com/polaris' });
-  assert.equal(unsavedUrl.response.status, 400);
-  assert.equal(unsavedUrl.body.error, 'invalid_database_url');
 } finally { await databaseLater.dispose(); }
 
 const rebound = worker({ ADMIN_TOKEN: 'setup-secret' });

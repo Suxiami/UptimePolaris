@@ -186,7 +186,7 @@ export const BOOTSTRAP_FILES: readonly BootstrapFile[] = [
   {
     name: "0020_theme_settings.sql",
     statements: [
-      "CREATE TABLE IF NOT EXISTS theme_settings (\n  short      TEXT PRIMARY KEY,\n  values_json TEXT NOT NULL,\n  updated_at INTEGER NOT NULL\n)",
+
     ],
   },
   {
@@ -377,7 +377,6 @@ export const BOOTSTRAP_FILES: readonly BootstrapFile[] = [
       "ALTER TABLE themes DROP COLUMN previous_active_version",
       "ALTER TABLE themes DROP COLUMN active_version",
       "ALTER TABLE themes DROP COLUMN is_active",
-      "DROP TABLE theme_settings",
     ],
   },
   {

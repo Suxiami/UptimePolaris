@@ -43,7 +43,7 @@ Il comprend une page de statut publique et une console d'administration ; l'inte
 - Les vérifications HTTP contrôlent le code de statut, les champs JSON, les en-têtes de réponse et le temps de réponse. Les vérifications TCP contrôlent l'ouverture du port, et peuvent envoyer un contenu et comparer la réponse.
 - Le backend Go vérifie aussi directement UDP, ICMP, DNS, TLS et WebSocket. Sur le Worker, les vérifications UDP et ICMP passent par un Agent.
 - Des vérifications complémentaires couvrent l'expiration du certificat SSL, l'expiration du domaine et les enregistrements DNS.
-- Les monitors Push disposent d'une URL dédiée ; une tâche planifiée y envoie un POST et un POST manquant est signalé comme panne.
+- Les moniteurs Push reçoivent une URL et une clé de rapport dédiées. Une tâche planifiée envoie des POST authentifiés ; l’absence de signal dans le délai prévu est signalée comme une panne.
 - L'intervalle minimal est de 60 secondes sur le Worker et de 5 secondes sur Go. Quand une cible n'est joignable que sur un réseau interne, choisissez un Agent comme source de vérification.
 
 Les types de monitors et chaque champ sont décrits dans le [guide d'utilisation](docs/usage.md).
@@ -159,7 +159,7 @@ Les modes d'installation et les différences entre plateformes sont dans le [gui
 
 ### Mise à jour
 
-Sauvegardez d'abord la base de données ; la procédure complète est dans le [guide d'exploitation](docs/operations.md#upgrade).
+Sauvegardez d'abord la base de données et l’espace de noms KV `CONFIG` ; la procédure complète est dans le [guide d'exploitation](docs/operations.md#upgrade).
 
 - **Cloudflare** : pour un fork, sélectionnez Sync fork sur GitHub et Workers Builds redéploie automatiquement, en conservant les bindings ajoutés dans le tableau de bord. Une installation par bouton nécessite de fusionner la nouvelle version dans le dépôt généré.
 - **Go** : arrêtez le service et sauvegardez le répertoire de données, remplacez le binaire, puis relancez-le avec le même répertoire de données.
@@ -167,7 +167,7 @@ Sauvegardez d'abord la base de données ; la procédure complète est dans le [g
 
 ### Désinstallation
 
-- **Cloudflare** : supprimez le Worker dans le tableau de bord. La base D1, le bucket R2 et la base PostgreSQL ne sont pas supprimés avec lui ; supprimez-les séparément si vous n'en avez plus besoin.
+- **Cloudflare** : supprimez le Worker dans le tableau de bord. La base D1, le bucket R2, l’espace de noms KV et le jeu de données Analytics Engine ne sont pas supprimés avec lui, pas plus que la base PostgreSQL ; supprimez-les séparément si vous n'en avez plus besoin.
 - **Go** : arrêtez le service, puis supprimez le binaire et le répertoire de données. Si vous utilisez PostgreSQL, supprimez aussi cette base.
 - **Agent** : téléchargez le script d'installation depuis votre site et lancez le désinstalleur :
 
@@ -183,7 +183,7 @@ Sauvegardez d'abord la base de données ; la procédure complète est dans le [g
 - Les données restent dans votre propre déploiement : D1 dans votre compte Cloudflare ou votre PostgreSQL pour le Worker, SQLite dans le répertoire de données ou votre PostgreSQL pour Go.
 - La page de statut et l'API publique ne demandent pas de connexion. Les noms de monitors, l'hôte et le chemin des cibles HTTP, ainsi que l'hôte et le port des cibles TCP sont publics : n'y mettez pas d'adresses internes ni de secrets.
 - Les noms d'utilisateur, mots de passe et chaînes de requête des cibles HTTP sont retirés ; les identifiants et les jetons d'Agent ne sont jamais exposés.
-- Le jeton d'une URL Push est l'identifiant de rapport de ce monitor. Gardez-le privé.
+- Chaque moniteur Push possède une clé de rapport distincte. Envoyez-la dans l’en-tête `Authorization` et gardez-la confidentielle ; l’URL ne contient aucune clé.
 - Pour un monitor qui ne doit pas être public, sélectionnez « Masquer de la page de statut » dans la liste des monitors et il reste réservé à l'administration.
 - La vérification SSL du Worker interroge les journaux publics de transparence des certificats, et l'Agent recherche la région de l'IP publique de la machine au démarrage et contacte GitHub pour les mises à jour.
 
@@ -192,16 +192,16 @@ Les champs renvoyés par les pages publiques et l'API sont décrits dans [donné
 ## Questions fréquentes
 
 **La page d'installation s'arrête au contrôle de déploiement et ne continue pas.**
-Configurez les éléments obligatoires `ADMIN_TOKEN` et `UPTIME` dans les **Settings** du Worker, enregistrez et déployez, puis relancez la vérification. D1 et R2 sont facultatifs ; sans D1, configurez la connexion PostgreSQL à l'étape suivante.
+Configurez les éléments obligatoires `ADMIN_TOKEN`, `UPTIME` et l’espace de noms KV `CONFIG` dans les **Settings** du Worker, enregistrez et déployez, puis relancez la vérification. D1 et R2 sont facultatifs ; sans D1, configurez la connexion PostgreSQL à l'étape suivante.
 
 **Ouvrir une URL Push dans un navigateur ne donne aucune donnée.**
-Un navigateur envoie un GET et Push n'accepte que POST, donc GET renvoie 405. Utilisez `curl -X POST` ou envoyez le POST depuis la tâche planifiée.
+Le navigateur envoie un GET, qui renvoie 405. Utilisez l’exemple POST du formulaire de modification : envoyez la clé dans l’en-tête `Authorization` et l’état dans un corps JSON.
 
 **Un test de notification réussit mais les vraies pannes ne produisent rien.**
 Vérifiez que le canal est activé, que sa portée de groupes inclut le monitor et qu'aucune fenêtre de maintenance n'est ouverte. Un canal sans groupe sélectionné reçoit tous les monitors.
 
 **Un Agent apparaît hors ligne.**
-Exécutez `pa status` et `pa logs -f` sur la machine et vérifiez que le service tourne et peut joindre le domaine du site. Les rapports partent toutes les 60 secondes par défaut, et environ 3 minutes sans rapport marquent la machine hors ligne.
+Exécutez `pa status` et `pa logs -f` sur la machine et vérifiez que le service tourne et peut joindre le domaine du site. Le backend Worker attend un rapport toutes les 60 secondes par défaut ; le backend Go rapporte à chaque échantillon (5 secondes par défaut). Une machine est hors ligne après trois intervalles de rapport (30 à 3600 secondes), donc « environ 3 minutes » ne vaut que pour la valeur par défaut de 60 secondes du Worker.
 
 D'autres cas sont traités dans le [dépannage](docs/troubleshooting.md). Si un problème persiste, ouvrez un [issue](https://github.com/XingLingQAQ/UptimePolaris/issues).
 

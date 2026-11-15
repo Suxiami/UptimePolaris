@@ -1,4 +1,5 @@
 import type { DayStat } from '../../../../shared/contracts';
+import type { PushCredentials } from '../../../../shared/push-monitor';
 
 /** Active network checks and passive readings. / 主动网络检查与被动上报。 */
 export type MonitorType = import('../../../../shared/backend-capabilities').MonitorType;
@@ -116,6 +117,7 @@ export interface ProbeAgentSource {
 
 /** Shape accepted by POST/PUT. Mirrors the Worker's validation. / POST/PUT 接受的数据结构，与 Worker 校验规则一致。 */
 export interface MonitorInput {
+  push_credentials?: PushCredentials;
   name: string;
   type: MonitorType;
   target: string;
@@ -131,8 +133,6 @@ export interface MonitorInput {
   check_dns?: number;
   /** Type-specific options, serialised by the form. / 类型专用选项，由表单序列化。 */
   options_json?: string;
-  /** Read-only in the console; present so the response type is honest. / 在控制台中只读；列出该字段以准确表示响应类型。 */
-  push_token?: string | null;
   /** For type='agent' only. / 仅用于 type='agent'。 */
   agent_id?: string | null;
   is_public?: boolean;

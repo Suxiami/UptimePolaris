@@ -1,6 +1,7 @@
 (() => {
   const target = document.body.dataset.target;
   const $ = (id) => document.getElementById(id);
+  let showMetrics = true;
   const strings = {
     en: {
       service: 'SERVICE STATUS', machines: 'MACHINE STATUS', live: 'LIVE OVERVIEW', current: 'CURRENT STATUS',
@@ -60,14 +61,19 @@
     const settings = config.theme_settings || {};
     const accent = settings.accent;
     if (typeof accent === 'string' && /^#[0-9a-f]{6}$/i.test(accent)) document.documentElement.style.setProperty('--accent', accent);
+    for (const [key, min, max, fallback] of [['radius', 0, 32, 18], ['width', 720, 1920, 1000]]) {
+      const value = settings[key];
+      document.documentElement.style.setProperty(key === 'width' ? '--page-width' : '--radius', `${typeof value === 'number' && value >= min && value <= max ? value : fallback}px`);
+    }
+    document.documentElement.dataset.density = ['compact', 'comfortable'].includes(settings.density) ? settings.density : 'normal';
+    showMetrics = settings.showMetrics !== false;
     const mode = config.presentation?.colorMode;
     if (mode === 'dark' || mode === 'light') document.documentElement.dataset.mode = mode;
     else delete document.documentElement.dataset.mode;
-    const headline = typeof settings.headline === 'string' ? settings.headline.trim() : '';
-    const title = headline || config.siteMeta?.title || 'Uptime Polaris';
+    const title = config.siteMeta?.title || 'Uptime Polaris';
     $('title').textContent = title;
     document.title = title + ' · Polaris Simple';
-    $('description').textContent = typeof settings.description === 'string' && settings.description.trim() ? settings.description : config.siteMeta?.description || '';
+    $('description').textContent = config.siteMeta?.description || '';
   }
   function renderItem(item) {
     const state = stateOf(item);
@@ -77,10 +83,10 @@
     const detail = target === 'agent' ? item.group?.name : item.group;
     if (detail) left.append(node('p', 'item-sub', detail));
     const right = node('div', 'item-right');
-    if (target === 'monitor' && typeof item.uptime === 'number' && Number.isFinite(item.uptime)) {
+    if (showMetrics && target === 'monitor' && typeof item.uptime === 'number' && Number.isFinite(item.uptime)) {
       right.append(node('span', 'metric', `${t('availability')} ${item.uptime.toFixed(2)}%`));
     }
-    if (target === 'agent' && typeof item.cpu === 'number' && Number.isFinite(item.cpu)) {
+    if (showMetrics && target === 'agent' && typeof item.cpu === 'number' && Number.isFinite(item.cpu)) {
       right.append(node('span', 'metric', `${t('cpu')} ${item.cpu.toFixed(1)}%`));
     }
     const label = node('span', `state ${state}`);

@@ -646,7 +646,6 @@ function SystemFacts({ t }: { t: ReturnType<typeof useTranslations<'admin.settin
     ['PBKDF2_ITERATIONS', 'wrangler.toml'],
     ['DATABASE_TYPE', 'wrangler.toml'],
     ['ADMIN_TOKEN', 'wrangler secret'],
-    ['CF_API_TOKEN', 'wrangler secret'],
   ];
   // Missing usage is unknown, not zero consumption. / 缺少用量数据表示未知，而不是零消耗。
   const meters = usage

@@ -137,7 +137,7 @@ export function AgentEditDrawer({ agent, onClose, onUpdated }: {
         </DrawerHeader>
         <DrawerBody className="polaris-scroll-x gap-5 py-5">
           <Input label={t('colName')} value={name} onValueChange={setName} maxLength={200} isRequired isDisabled={busy} autoFocus />
-          {taxonomy.enabled ? <TaxonomyFields groups={taxonomy.groups} tags={taxonomy.tags} groupId={groupId} tagIds={tagIds} onGroupChange={setGroupId} onTagsChange={setTagIds} disabled={busy || !!taxonomy.error} /> : null}
+          {taxonomy.enabled ? <TaxonomyFields groups={taxonomy.groups} tags={taxonomy.tags} groupId={groupId} tagIds={tagIds} onGroupChange={setGroupId} onTagsChange={setTagIds} onCreateGroup={taxonomy.createGroup} onCreateTag={taxonomy.createTag} disabled={busy || !!taxonomy.error} /> : null}
           {taxonomy.error ? <p role="alert" className="text-small text-danger">{apiErrorMessage(taxonomy.error)}</p> : null}
           {taxonomy.enabled ? <Switch isSelected={isPublic} onValueChange={setIsPublic} isDisabled={busy}>{adminT('action.showOnPublic')}</Switch> : null}
           <section className="flex flex-col gap-3" aria-label={t('sectionInstall')}>
@@ -145,16 +145,16 @@ export function AgentEditDrawer({ agent, onClose, onUpdated }: {
             <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
               <div className="min-w-0">
                 <p className="text-tiny font-medium">{t('agentActive')}</p>
-                <p className="mt-0.5 text-tiny text-default-500">{t('agentActiveHint')}</p>
+                <p id={`active-hint-${agent.id}`} className="mt-0.5 text-tiny text-default-500">{t('agentActiveHint')}</p>
               </div>
-              <Switch size="sm" classNames={{ base: 'shrink-0', label: 'whitespace-nowrap' }} isSelected={active} onValueChange={setActive} isDisabled={busy}>{active ? t('agentActiveOn') : t('agentActiveOff')}</Switch>
+              <Switch size="sm" aria-label={t('agentActive')} aria-describedby={`active-hint-${agent.id}`} classNames={{ base: 'shrink-0' }} isSelected={active} onValueChange={setActive} isDisabled={busy} />
             </div>
             <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
               <div className="min-w-0">
                 <p id={`probe-label-${agent.id}`} className="text-tiny font-medium">{t('probeEnabled')}</p>
                 <p id={`probe-hint-${agent.id}`} className="mt-0.5 text-tiny text-default-500">{t('addProbeNodeHint')}</p>
               </div>
-              <Switch size="sm" name="probe_enabled" aria-labelledby={`probe-label-${agent.id}`} aria-describedby={`probe-hint-${agent.id}`} classNames={{ base: 'shrink-0', label: 'whitespace-nowrap' }} isSelected={probeEnabled} onValueChange={setProbeEnabled} isDisabled={busy}>{probeEnabled ? t('agentActiveOn') : t('agentActiveOff')}</Switch>
+              <Switch size="sm" name="probe_enabled" aria-labelledby={`probe-label-${agent.id}`} aria-describedby={`probe-hint-${agent.id}`} classNames={{ base: 'shrink-0' }} isSelected={probeEnabled} onValueChange={setProbeEnabled} isDisabled={busy} />
             </div>
           </section>
           <section className="flex flex-col gap-3" aria-label={t('configTitle')}>

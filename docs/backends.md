@@ -28,7 +28,7 @@ Go 保持单页初始化，可选 SQLite 或 PostgreSQL。字段和错误码见[
 - [Worker 部署](deployment.md)：在 Cloudflare Workers 上运行。
 - [Go 安装与启动](../backends/go/README.md#安装与启动)：下载可执行文件，在自有服务器上运行。
 
-两种后端都内置前端界面并提供 `/admin` 管理入口。Worker 的主题文件存放在 R2；Go 的主题文件存放在持久化数据目录。备份时请将数据库和主题目录一并备份。
+两种后端都内置前端界面并提供 `/admin` 管理入口。Worker 的主题文件存放在 R2；Go 的主题文件存放在持久化数据目录。备份时请将数据库、`CONFIG` KV（Worker）和主题目录一并备份。
 
 ## English
 
@@ -58,4 +58,4 @@ Go keeps its single setup form with SQLite or PostgreSQL. See the [setup databas
 - [Worker deployment](deployment.md#english): run on Cloudflare.
 - [Go installation](../backends/go/README.md#install-and-start): download the executable and run it on your server.
 
-Both provide built-in pages and the `/admin` console. Worker stores theme files in R2; Go stores them in its persistent data directory. Back up themes together with the database.
+Both provide built-in pages and the `/admin` console. Worker stores theme files in R2; Go stores them in its persistent data directory. For Worker, back up the database, the `CONFIG` KV namespace and theme files together.

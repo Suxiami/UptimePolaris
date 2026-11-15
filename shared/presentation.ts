@@ -1,3 +1,5 @@
+import { validateBuiltinThemeOptions } from './builtin-theme';
+
 export type PageKind = 'monitor' | 'agent';
 export const PAGE_KINDS: PageKind[] = ['monitor', 'agent'];
 export interface DomainPage {
@@ -30,7 +32,7 @@ export interface PresentationState {
   revision: string;
 }
 
-// 内置页面的显示默认值，不属于可编辑设置。 / Built-in display defaults, not editable settings.
+// 内置页面的默认显示值。 / Default display values for built-in pages.
 export const DEFAULT_PAGE_VIEW = {
   title: '',
   description: '',
@@ -38,10 +40,11 @@ export const DEFAULT_PAGE_VIEW = {
   locale: 'auto',
   colorMode: 'system' as const,
   layout: 'list' as 'cards' | 'list',
-  density: 'normal',
+  density: 'normal' as 'compact' | 'normal' | 'comfortable',
   columns: 3,
   width: 1440,
   accent: '#6366F1',
+  radius: 12,
   footer: '',
   showHistory: true,
   showLatency: true,
@@ -153,10 +156,9 @@ export function parsePresentation(value: unknown): PresentationConfig | null {
         page.theme.version.length > 160)
     )
       return null;
-    // 注入内容按 UTF-8 字节计限，且只允许用于已选主题的页面。
-    // Limit injected content by UTF-8 bytes and allow it only on pages with a selected theme.
+    // 注入内容按 UTF-8 字节计限。 / Bound injected content by UTF-8 bytes.
     for (const [value, limit] of [[page.headCode, HEAD_CODE_MAX_BYTES], [page.contentHtml, CONTENT_HTML_MAX_BYTES]] as const) {
-      if (value !== undefined && (typeof value !== 'string' || utf8Length(value) > limit || (!page.theme && value !== ''))) return null;
+      if (value !== undefined && (typeof value !== 'string' || utf8Length(value) > limit)) return null;
     }
     if (
       !page.themeOptions ||
@@ -165,6 +167,7 @@ export function parsePresentation(value: unknown): PresentationConfig | null {
       JSON.stringify(page.themeOptions).length > 32000
     )
       return null;
+    if (page.theme === null && !validateBuiltinThemeOptions(kind, page.themeOptions)) return null;
     pages[kind] = structuredClone(page);
   }
   return {

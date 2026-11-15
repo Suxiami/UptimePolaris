@@ -1,8 +1,10 @@
 import type { Env } from '../../types';
-import { D1Adapter } from '../db/d1';
+import { PAGE_KINDS } from '../../../../../shared/presentation';
+import { loadPresentation } from '../presentation/store';
+import { visibilityRevisionWrite } from '../public/cache';
 import { getDB } from '../db/factory';
 import { themeSQL } from '../db/sql/themes';
-import { isSafeThemePath, parseManifest, type ThemeManifest } from './manifest';
+import { isSafeThemePath, parseManifest, validOption, type ThemeManifest } from './manifest';
 import { acquireThemeLease } from './lease';
 import { contentTypeFor } from './storage';
 import { readZip, ZipError } from './zip';
@@ -203,27 +205,48 @@ export async function installPackage(env: Env, bytes: Uint8Array, sourceUrl: str
 
   try {
     const db = getDB(env);
-    const now = Math.floor(Date.now() / 1000);
-    const leaseTime = Date.now();
-    const registration = [manifest.id, versionKey, digest, prefix, JSON.stringify(parsed.raw), leaseTime, manifest.short, manifest.id, manifest.id, manifest.short, manifest.id, manifest.id, lease.token, leaseTime] as const;
-    const theme = [manifest.short, manifest.id, manifest.name, manifest.version, manifest.description ?? null, manifest.author ?? null, sourceUrl, JSON.stringify(parsed.raw), now, now, manifest.id, lease.token, leaseTime] as const;
-    const lock = db.type === 'postgres' ? 'UPDATE theme_operations SET expires_at=expires_at WHERE id=$1 AND token=$2 AND expires_at>=$3' : 'UPDATE theme_operations SET expires_at=expires_at WHERE id=? AND token=? AND expires_at>=?';
-    if (db instanceof D1Adapter) {
-      const changes = await db.batchAll([
-        { sql: lock, params: [manifest.id,lease.token,leaseTime] },
-        { sql: themeSQL.d1.insertVersion, params: [...registration] },
-        { sql: themeSQL.d1.upsert, params: [...theme] },
+    const pg = db.type === 'postgres';
+    const arg = (index: number) => pg ? `$${index}` : `?${index}`;
+    let committed = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await lease.renew();
+      const state = await loadPresentation(env);
+      for (const kind of PAGE_KINDS) {
+        const page = state.config.pages[kind];
+        if (page.theme?.short !== manifest.short) continue;
+        const definition = manifest.themes.find(item => item.id === page.theme!.theme && item.target === kind);
+        if (!definition) {
+          await discardFiles();
+          return failure('theme_unavailable', 'updated package does not include the active page theme');
+        }
+        page.theme.version = versionKey;
+        page.themeOptions = Object.fromEntries(Object.entries(page.themeOptions).filter(([key, value]) => {
+          const option = definition.options.find(item => item.key === key);
+          return option && validOption(option, value);
+        }));
+      }
+      const now = Math.floor(Date.now() / 1000), leaseTime = Date.now(), next = crypto.randomUUID();
+      const write = `INSERT INTO presentation_state(id,config_json,revision,updated_at)
+        SELECT 'main',${arg(1)},${arg(2)},${arg(3)}
+        WHERE NOT EXISTS (SELECT 1 FROM themes WHERE (id=${arg(5)} AND (short<>${arg(6)} OR deleting=1)) OR (short=${arg(6)} AND id<>${arg(5)}))
+          AND EXISTS (SELECT 1 FROM theme_operations WHERE id=${arg(5)} AND token=${arg(7)} AND expires_at>=${arg(8)})
+        ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,revision=excluded.revision,updated_at=excluded.updated_at WHERE presentation_state.revision=${arg(4)}`;
+      const registration = [manifest.id, versionKey, digest, prefix, JSON.stringify(parsed.raw), leaseTime, manifest.short, manifest.id, manifest.id, manifest.short, manifest.id, manifest.id, lease.token, leaseTime, next];
+      const theme = [manifest.short, manifest.id, manifest.name, manifest.version, manifest.description ?? null, manifest.author ?? null, sourceUrl, JSON.stringify(parsed.raw), now, now, manifest.id, lease.token, leaseTime, next];
+      const changes = await db.commit([
+        ...(pg ? [{ sql: "SELECT pg_advisory_xact_lock(hashtext('polaris-presentation-theme'))", params: [] }] : []),
+        { sql: write, params: [JSON.stringify(state.config), next, now, state.revision, manifest.id, manifest.short, lease.token, leaseTime] },
+        { sql: themeSQL[db.type].insertVersion, params: registration },
+        { sql: themeSQL[db.type].upsert, params: theme },
+        { sql: `UPDATE theme_versions SET installed_at=${arg(1)} WHERE id=${arg(2)} AND version=${arg(3)} AND EXISTS (SELECT 1 FROM presentation_state WHERE id='main' AND revision=${arg(4)})`, params: [leaseTime, manifest.id, versionKey, next] },
+        visibilityRevisionWrite(now, pg, next),
       ]);
-      if (changes[0] !== 1) { await discardFiles(); return failure('theme_busy', 'theme operation lease expired; retry shortly'); }
-      if (changes[2] !== 1) { await discardFiles(); return failure('theme_id_short_conflict', 'theme id and short are already bound to a different install'); }
-    } else {
-      await db.transaction(async (tx) => {
-        if ((await tx.execute(lock,[manifest.id,lease.token,leaseTime])).rowsAffected !== 1) throw new Error('theme_busy');
-        await tx.execute(themeSQL[db.type].insertVersion, [...registration]);
-        const result = await tx.execute(themeSQL[db.type].upsert, [...theme]);
-        if (result.rowsAffected !== 1) throw new Error('theme_id_short_conflict');
-      });
+      const offset = pg ? 1 : 0;
+      if (changes[offset] === 1 && changes[offset + 2] === 1 && changes[offset + 3] === 1) { committed = true; break; }
+      const conflict = await db.queryOne(`SELECT id FROM themes WHERE (id=${arg(1)} AND (short<>${arg(2)} OR deleting=1)) OR (short=${arg(2)} AND id<>${arg(1)})`, [manifest.id, manifest.short]);
+      if (conflict) { await discardFiles(); return failure('theme_id_short_conflict', 'theme id and short are already bound to a different install'); }
     }
+    if (!committed) { await discardFiles(); return failure('presentation_conflict', 'page settings changed during installation; retry shortly'); }
     const registered = await db.queryOne<{ prefix: string }>(themeSQL[db.type].version, [manifest.id, versionKey]);
     if (!registered) throw new Error('theme_version_registration_failed');
     if (registered.prefix !== prefix) await discardFiles();

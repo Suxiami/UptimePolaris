@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -72,6 +73,67 @@ func validThemeOption(option Object, value any) bool {
 		}
 		return true
 	}
+}
+
+func builtinThemeOptions(kind string) []Object {
+	layout := "list"
+	if kind == "agent" {
+		layout = "cards"
+	}
+	options := []Object{
+		{"key": "accent", "label": "accent", "type": "color", "default": "#6366F1"},
+		{"key": "radius", "label": "radius", "type": "number", "min": 0, "max": 32, "step": 1, "default": 12},
+		{"key": "width", "label": "width", "type": "number", "min": 720, "max": 1920, "step": 1, "default": 1440},
+		{"key": "density", "label": "density", "type": "select", "choices": []string{"compact", "normal", "comfortable"}, "default": "normal"},
+		{"key": "layout", "label": "layout", "type": "select", "choices": []string{"list", "cards"}, "default": layout},
+		{"key": "columns", "label": "columns", "type": "number", "min": 1, "max": 4, "step": 1, "default": 3},
+	}
+	keys := []string{"showHistory", "showLatency", "showAvailability", "showExpiry"}
+	if kind == "agent" {
+		keys = []string{"showHistory", "showCountry"}
+	}
+	for _, key := range keys {
+		options = append(options, Object{"key": key, "label": key, "type": "boolean", "default": true})
+	}
+	return options
+}
+
+func validateBuiltinThemeOptions(kind string, values Object) bool {
+	if values == nil {
+		return false
+	}
+	specs := map[string]Object{}
+	for _, option := range builtinThemeOptions(kind) {
+		specs[str(option, "key")] = option
+	}
+	for key, value := range values {
+		option := specs[key]
+		if option == nil || !validThemeOption(option, value) {
+			return false
+		}
+		if str(option, "type") == "number" && math.Trunc(number(value)) != number(value) {
+			return false
+		}
+	}
+	return true
+}
+
+func resolveBuiltinPageView(kind string, page Object) Object {
+	view := Object{"title": "", "description": "", "logo": "", "locale": "auto", "colorMode": "system", "layout": "list", "density": "normal", "columns": 3, "width": 1440, "accent": "#6366F1", "radius": 12, "footer": "", "showHistory": true, "showLatency": true, "showAvailability": true, "showExpiry": true, "showCountry": true, "showOs": true, "metrics": []string{"cpu", "memory", "disk", "load", "network", "traffic", "uptime"}, "historyHours": 24}
+	if kind == "agent" {
+		view["layout"] = "cards"
+	}
+	for key, value := range page {
+		view[key] = value
+	}
+	if page["theme"] == nil {
+		for _, option := range builtinThemeOptions(kind) {
+			key := str(option, "key")
+			view[key] = fallback(object(page["themeOptions"]), key, option["default"])
+		}
+	}
+	view["showCountry"] = publicPageCountry(page) && boolean(view["showCountry"])
+	return view
 }
 
 func validateManifest(m Object) error {
@@ -396,6 +458,48 @@ func (a *App) installTheme(ctx context.Context, raw []byte, source string) (Obje
 		if boolean(theme["deleting"]) {
 			return failure("theme_busy", 409)
 		}
+		state, e := t.get("config", "presentation")
+		if e != nil {
+			return e
+		}
+		if state != nil {
+			changed := false
+			for kind, value := range object(object(state["config"])["pages"]) {
+				page := object(value)
+				selected := object(page["theme"])
+				if str(selected, "short") != short {
+					continue
+				}
+				var definition Object
+				for _, item := range array(manifest["themes"]) {
+					candidate := object(item)
+					if str(candidate, "id") == str(selected, "theme") && str(candidate, "target") == kind {
+						definition = candidate
+						break
+					}
+				}
+				if definition == nil {
+					return failure("theme_unavailable", 409)
+				}
+				options := Object{}
+				for _, item := range array(definition["options"]) {
+					option := object(item)
+					key := str(option, "key")
+					if value, ok := object(page["themeOptions"])[key]; ok && validThemeOption(option, value) {
+						options[key] = value
+					}
+				}
+				selected["version"] = versionKey
+				page["themeOptions"] = options
+				changed = true
+			}
+			if changed {
+				state["revision"] = token(16)
+				if e = t.put("config", "presentation", state); e != nil {
+					return e
+				}
+			}
+		}
 		if source == "" && theme != nil {
 			source = str(theme, "sourceUrl")
 		}
@@ -446,7 +550,7 @@ func (a *App) selectedTheme(ctx context.Context, kind string, page Object) (Obje
 }
 func (a *App) validatePageTheme(ctx context.Context, kind string, page Object) error {
 	if page["theme"] == nil {
-		if len(object(page["themeOptions"])) != 0 {
+		if !validateBuiltinThemeOptions(kind, object(page["themeOptions"])) {
 			return failure("theme_unavailable", 409)
 		}
 		return nil
@@ -520,7 +624,7 @@ func (a *App) themeRoutes() {
 			row["supported"] = true
 			rowVersions := []Object{}
 			for _, version := range versions {
-				if str(version, "id") != str(theme, "id") {
+				if str(version, "id") != str(theme, "id") || str(version, "digest") != str(theme, "digest") {
 					continue
 				}
 				definitions := []Object{}

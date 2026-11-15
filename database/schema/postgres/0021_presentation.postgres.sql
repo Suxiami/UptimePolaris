@@ -11,4 +11,3 @@ DROP INDEX idx_themes_one_active;
 ALTER TABLE themes DROP COLUMN previous_active_version;
 ALTER TABLE themes DROP COLUMN active_version;
 ALTER TABLE themes DROP COLUMN is_active;
-DROP TABLE theme_settings;

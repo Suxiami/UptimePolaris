@@ -43,7 +43,7 @@ Inclui uma página de status pública e um console de administração; a interfa
 - Verificações HTTP conferem o código de status, campos JSON, cabeçalhos de resposta e tempo de resposta. Verificações TCP conferem se a porta abre, e podem enviar conteúdo e comparar a resposta.
 - O backend Go também verifica diretamente UDP, ICMP, DNS, TLS e WebSocket. No Worker, as verificações UDP e ICMP passam por um Agent.
 - Verificações adicionais cobrem a validade do certificado SSL, a validade do domínio e registros DNS.
-- Monitores Push recebem uma URL dedicada; uma tarefa agendada envia um POST para ela e um POST ausente é reportado como falha.
+- Monitores Push recebem uma URL e uma chave de envio próprias. Uma tarefa agendada envia POSTs autenticados; a falta de sinais dentro do prazo é tratada como falha.
 - O intervalo mínimo é de 60 segundos no Worker e 5 segundos no Go. Quando um alvo só é acessível em uma rede interna, escolha um Agent como origem da verificação.
 
 Os tipos de monitor e todos os campos estão no [guia de uso](docs/usage.md).
@@ -159,7 +159,7 @@ Os modos de instalação e as diferenças entre plataformas estão no [guia do A
 
 ### Atualização
 
-Faça backup do banco primeiro; o procedimento completo está no [guia de operações](docs/operations.md#upgrade).
+Faça backup do banco e do namespace KV `CONFIG` primeiro; o procedimento completo está no [guia de operações](docs/operations.md#upgrade).
 
 - **Cloudflare**: em um fork, selecione Sync fork no GitHub e o Workers Builds reimplanta automaticamente, mantendo os bindings adicionados no painel. Uma instalação pelo botão precisa que a nova versão seja mesclada no repositório gerado.
 - **Go**: pare o serviço e faça backup do diretório de dados, substitua o binário e inicie com o mesmo diretório de dados.
@@ -167,7 +167,7 @@ Faça backup do banco primeiro; o procedimento completo está no [guia de opera�
 
 ### Desinstalação
 
-- **Cloudflare**: exclua o Worker no painel. O banco D1, o bucket R2 e o banco PostgreSQL não são excluídos com ele; remova-os separadamente se não precisar mais deles.
+- **Cloudflare**: exclua o Worker no painel. O banco D1, o bucket R2, o namespace KV e o conjunto de dados do Analytics Engine não são excluídos com ele, nem o banco PostgreSQL; remova-os separadamente se não precisar mais deles.
 - **Go**: pare o serviço, depois exclua o binário e o diretório de dados. Se usar PostgreSQL, exclua esse banco também.
 - **Agent**: baixe o script de instalação do seu site e execute o desinstalador:
 
@@ -183,7 +183,7 @@ Faça backup do banco primeiro; o procedimento completo está no [guia de opera�
 - Os dados ficam na sua própria implantação: D1 na sua conta Cloudflare ou seu PostgreSQL para o Worker, SQLite no diretório de dados ou seu PostgreSQL para o Go.
 - A página de status e a API pública não exigem login. Nomes de monitores, o host e o caminho de alvos HTTP, e o host e a porta de alvos TCP são públicos, então não coloque endereços internos nem secrets neles.
 - Nomes de usuário, senhas e strings de consulta dos alvos HTTP são removidos; credenciais e tokens de Agent nunca são expostos.
-- O token de uma URL Push é a credencial de reporte desse monitor. Mantenha-o privado.
+- Cada monitor Push tem uma chave de envio separada. Envie-a no cabeçalho `Authorization` e mantenha-a em sigilo; a URL não contém a chave.
 - Para um monitor que não deve ser público, selecione "Ocultar da página de status" na lista de monitores e ele fica restrito à administração.
 - A verificação SSL do Worker consulta os logs públicos de transparência de certificados, e o Agent consulta a região do IP público da máquina na inicialização e acessa o GitHub nas atualizações.
 
@@ -192,16 +192,16 @@ Os campos retornados pelas páginas públicas e pela API estão em [dados públi
 ## Perguntas frequentes
 
 **A página de configuração para na verificação de implantação e não continua.**
-Configure os itens obrigatórios `ADMIN_TOKEN` e `UPTIME` nas **Settings** do Worker, salve e implante, depois verifique novamente. D1 e R2 são opcionais; sem D1, configure a conexão PostgreSQL na próxima etapa.
+Configure os itens obrigatórios `ADMIN_TOKEN`, `UPTIME` e o namespace KV `CONFIG` nas **Settings** do Worker, salve e implante, depois verifique novamente. D1 e R2 são opcionais; sem D1, configure a conexão PostgreSQL na próxima etapa.
 
 **Abrir uma URL Push no navegador não traz dados.**
-O navegador envia GET e o Push aceita apenas POST, então GET retorna 405. Use `curl -X POST` ou envie o POST a partir da tarefa agendada.
+O navegador envia GET, que retorna 405. Use o exemplo POST no formulário de edição: envie a chave no cabeçalho `Authorization` e o status em um corpo JSON.
 
 **Um teste de notificação funciona, mas as falhas reais não geram nada.**
 Verifique se o canal está ativo, se o escopo de grupos inclui o monitor e se não há janela de manutenção aberta. Um canal sem grupos selecionados recebe todos os monitores.
 
 **Um Agent aparece offline.**
-Execute `pa status` e `pa logs -f` na máquina e confirme que o serviço está rodando e alcança o domínio do site. Os relatórios saem a cada 60 segundos por padrão, e cerca de 3 minutos sem um deles marcam a máquina como offline.
+Execute `pa status` e `pa logs -f` na máquina e confirme que o serviço está rodando e alcança o domínio do site. O backend Worker envia um relatório a cada 60 segundos por padrão; o backend Go envia a cada amostra (5 segundos por padrão). A máquina fica offline após três intervalos de relatório (30 a 3600 segundos), então “cerca de 3 minutos” vale apenas para o padrão de 60 segundos do Worker.
 
 Mais casos estão na [solução de problemas](docs/troubleshooting.md). Se um problema persistir, abra uma [issue](https://github.com/XingLingQAQ/UptimePolaris/issues).
 

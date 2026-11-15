@@ -51,7 +51,7 @@ await checkExample('monitor');
 await checkExample('agent');
 
 const token = 'theme-cache-fixture-token';
-const mf = new Miniflare({
+const mf = new Miniflare({ kvNamespaces: { CONFIG: 'public-theme-cache-config' },
   modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2025-01-01',
   compatibilityFlags: ['nodejs_compat'], bindings: { ADMIN_TOKEN: token, PBKDF2_ITERATIONS: '3000' },
   analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } }, d1Databases: { DB: 'public-theme-cache-fixture' }, r2Buckets: { THEMES: 'public-theme-cache-fixture' },

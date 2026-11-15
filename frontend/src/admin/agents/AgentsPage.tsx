@@ -54,8 +54,8 @@ import { AgentCommandsDialog } from './AgentCommandsDialog';
 import { AgentDetailDialog } from './AgentDetailDialog';
 import { AgentEditDrawer } from './AgentEditDrawer';
 import { AgentVersionPopover } from './AgentVersionPopover';
-import { agentsApi, type AgentTag } from './api';
-import { TaxonomyDelete, TaxonomyEditor, useAgentTaxonomy } from './Taxonomy';
+import { agentsApi } from './api';
+import { useAgentTaxonomy } from './Taxonomy';
 import { FleetInsights, FleetOverview } from './FleetOverview';
 import type { AgentCommandRecord, BatchCommandAction, FleetAgent, FleetSummary } from './types';
 
@@ -96,10 +96,6 @@ export function AgentsPage() {
   const taxonomy = useAgentTaxonomy();
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [groupEditorOpen, setGroupEditorOpen] = useState(false);
-  const [tagEditor, setTagEditor] = useState<AgentTag | 'new' | null>(null);
-  const [tagDelete, setTagDelete] = useState<AgentTag | null>(null);
   const [agents, setAgents] = useState<FleetAgent[] | null>(null);
   const [summary, setSummary] = useState<FleetSummary | null>(null);
   const [error, setError] = useState('');
@@ -360,13 +356,12 @@ export function AgentsPage() {
         {addOpen ? (
           <AddAgentPanel
             open={addOpen}
-            onClose={() => setAddOpen(false)}
-            onCreated={() => load()}
+            onClose={() => { setAddOpen(false); void taxonomy.load(); }}
+            onCreated={async () => { await Promise.all([load(), taxonomy.load()]); }}
           />
         ) : null}
 
         {taxonomy.error ? <p role="alert" className="text-small text-danger">{apiErrorMessage(taxonomy.error)}</p> : null}
-        {taxonomy.enabled && tagsOpen ? <div className="polaris-card flex flex-col gap-3 p-4"><div className="flex items-center gap-2"><h2 className="flex-1 text-small font-semibold">{adminT('agentTaxonomy.tags')}</h2><Button size="sm" color="primary" onPress={() => setTagEditor('new')}>{adminT('agentTaxonomy.addTag')}</Button><Button size="sm" variant="light" onPress={() => setTagsOpen(false)}>{t('close')}</Button></div>{taxonomy.tags.map(tag => <div key={tag.id} className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: tag.color }} /><span className="flex-1 text-small">{tag.name} · {adminT('agentTaxonomy.members', { count: tag.count })}</span><Button size="sm" variant="light" onPress={() => setTagEditor(tag)}>{adminT('action.edit')}</Button><Button size="sm" variant="light" color="danger" onPress={() => setTagDelete(tag)}>{adminT('action.delete')}</Button></div>)}</div> : null}
         {error ? (
           <div className="flex items-center gap-3 rounded-xl border border-danger/20 bg-danger/[0.06] px-4 py-2.5 text-small text-danger-600">
             <AlertTriangle size={16} className="shrink-0" />
@@ -496,8 +491,6 @@ export function AgentsPage() {
               <Select size="sm" className="w-40" aria-label={adminT('agentTaxonomy.tags')} placeholder={adminT('agentTaxonomy.tags')} selectedKeys={tagFilter ? [tagFilter] : []} onSelectionChange={keys => setTagFilter([...keys][0] ? String([...keys][0]) : null)}>
                 {taxonomy.tags.map(tag => <SelectItem key={tag.id} textValue={tag.name}>{tag.name}</SelectItem>)}
               </Select>
-              <Button size="sm" variant="flat" onPress={() => setTagsOpen(value => !value)}>{adminT('agentTaxonomy.manageTags')}</Button>
-              <Button size="sm" variant="flat" onPress={() => setGroupEditorOpen(true)}>{adminT('agentTaxonomy.addGroup')}</Button>
             </> : null}
 
             {(query || stateFilter || groupFilter || tagFilter) ? (
@@ -721,11 +714,8 @@ export function AgentsPage() {
       </div>
 
       <AgentDetailDialog agent={detail} onClose={() => setDetail(null)} onEdit={(agent) => { setDetail(null); setEditing(agent); }} />
-      {groupEditorOpen ? <TaxonomyEditor kind="groups" item={null} onClose={() => setGroupEditorOpen(false)} onSaved={taxonomy.load} /> : null}
-      {tagEditor ? <TaxonomyEditor kind="tags" item={tagEditor === 'new' ? null : tagEditor} onClose={() => setTagEditor(null)} onSaved={async () => { await taxonomy.load(); await load(); }} /> : null}
-      {tagDelete ? <TaxonomyDelete kind="tags" item={tagDelete} onClose={() => setTagDelete(null)} onDeleted={async () => { await taxonomy.load(); await load(); }} /> : null}
       {agents?.filter(agent => agent.id === commandAgentId).map(agent => <AgentCommandsDialog key={agent.id} agent={agent} onClose={() => setCommandAgentId(null)} onCommandsLoaded={noteCommands} />)}
-      {editing ? <AgentEditDrawer key={editing.id} agent={editing} onClose={() => setEditing(null)} onUpdated={() => void load()} /> : null}
+      {editing ? <AgentEditDrawer key={editing.id} agent={editing} onClose={() => { setEditing(null); void taxonomy.load(); }} onUpdated={() => { void load(); void taxonomy.load(); }} /> : null}
 
       <Modal isOpen={deleteTargets !== null} onClose={() => !deleting && setDeleteTargets(null)} isDismissable={!deleting} isKeyboardDismissDisabled={deleting} size="md" scrollBehavior="inside">
         <ModalContent>

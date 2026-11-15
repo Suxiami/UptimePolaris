@@ -54,8 +54,8 @@ bucket_name = "uptime-themes"
 
 # Worker 初始化必需；部署前先在账号中启用 Analytics Engine。
 # Required for Worker setup; enable Analytics Engine in the account before deployment.
-# SQL 回填另需 CF_ACCOUNT_ID 和 CF_API_TOKEN，初始化不要求查询凭据。
-# SQL backfill also needs CF_ACCOUNT_ID and CF_API_TOKEN; setup does not require query credentials.
+# SQL 回填通过 ANALYTICS_SQL 绑定读取，无需查询凭据。
+# SQL backfill reads through ANALYTICS_SQL without query credentials.
 [[analytics_engine_datasets]]
 binding = "UPTIME"
 dataset = "uptime_heartbeats"
@@ -71,10 +71,8 @@ enabled = true
 
 # 安装凭据：wrangler secret put ADMIN_TOKEN。
 # /login 的首次设置选择自己的账号；ADMIN_TOKEN 也供管理 API 使用。
-# AE SQL 回填另需 CF_ACCOUNT_ID / CF_API_TOKEN（Account Analytics Read）。
 # Installation credential: wrangler secret put ADMIN_TOKEN.
 # First-time setup at /login creates the operator's own account; ADMIN_TOKEN also authorizes the management API.
-# AE SQL backfill also requires CF_ACCOUNT_ID and CF_API_TOKEN with Account Analytics Read.
 [vars]
 # 允许 1–100000，默认 3000；旧哈希自带成本，本地计时不证明生产 CPU。
 # Allowed range: 1–100000, default 3000; existing hashes carry their own cost, and local timing does not prove production CPU usage.
@@ -86,5 +84,5 @@ PBKDF2_ITERATIONS = "3000"
 # D1 uses DB; Postgres uses the DATABASE_URL secret and permits removing the D1 binding.
 # D1 applies migrations by ledger; PG discovers all database/schema/postgres/*.postgres.sql files.
 # Operators run migrations and deployments; see docs/operations.md.
-DATABASE_TYPE = "d1"
-# DATABASE_TYPE = "postgres"
+# DATABASE_TYPE 可省略：绑定 DB 时为 d1，未绑定时为 postgres。
+# DATABASE_TYPE may be omitted: d1 with a DB binding, postgres otherwise.

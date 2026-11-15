@@ -39,10 +39,8 @@ async function compile(source) {
 const brand = await compile(await fs.readFile(path.join(root, 'shared/brand-mark.ts'), 'utf8'));
 await output('brand-mark.json', JSON.stringify({ blue: brand.BRAND_BLUE, path: brand.BRAND_RING_PATH, ring: brand.RING, tightViewBox: brand.TIGHT_VIEWBOX }, null, 2) + '\n');
 
-let installer = await fs.readFile(path.join(root, 'backends/worker/src/lib/agent/install-script.ts'), 'utf8');
-installer = installer.replace(/^import .*;\r?\n/gm, '');
-installer = `const AGENT_SHORT_COMMAND = 'pa'; const powershellQuote = value => "'" + value.replaceAll("'", "''") + "'";\n` + installer;
-const scripts = await compile(installer);
+const installerBuild = await build({ entryPoints: [path.join(root, 'backends/worker/src/lib/agent/install-script.ts')], bundle: true, write: false, format: 'esm', platform: 'neutral' });
+const scripts = await import('data:text/javascript;base64,' + Buffer.from(installerBuild.outputFiles[0].text).toString('base64'));
 await output('installers/install.sh', scripts.installSh({ base: 'POLARIS_ORIGIN_PLACEHOLDER' }));
 await output('installers/install.ps1', scripts.installPs1({ base: 'POLARIS_ORIGIN_PLACEHOLDER' }));
 

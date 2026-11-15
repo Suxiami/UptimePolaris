@@ -31,7 +31,7 @@
    - 在 Cloudflare 保存并部署配置后，回到页面点击“重新检查”，必需项全部通过后才能点击“下一步”。检查失败时不会沿用上次的通过结果，已填写的初始化信息会保留。R2 不影响初始化，可稍后添加。
 2. **Go 后端提示未配置密钥**：检查工作目录 `.env` 或进程环境变量中的 `POLARIS_SETUP_KEY`（未设置时回退到 `POLARIS_ADMIN_TOKEN`）。两者均未设置且尚未初始化时，请查看本次进程启动日志中的 `setup_key` 字段。修改后需重启进程。
 3. 请确认输入的是初始化密钥，而不是管理员登录密码或 Agent Token。
-4. 核对所选数据库：Worker 在绑定 D1 时可选 D1 或 PostgreSQL，未绑定 D1 时只有 PostgreSQL；Go 支持 SQLite 或 PostgreSQL。新选 PostgreSQL 需填写连接地址；已部署的 PostgreSQL 连接可留空复用，页面不会回显原地址。
+4. 核对所选数据库：Worker 在绑定 D1 时可选 D1 或 PostgreSQL，未绑定 D1 时只有 PostgreSQL；Go 支持 SQLite 或 PostgreSQL。新选 PostgreSQL 需填写连接地址；初始化时保存的连接或部署时配置的 PostgreSQL 连接都可留空复用，页面不会回显原地址。
 5. 已有数据库提示表结构缺失时，请按对应后端执行迁移，不要反复重输凭据。首次初始化仅为空数据库建表，不会接管未知的表结构。
 
 Worker 的第二步负责数据库配置，第三步才创建账号。页面填写的 PostgreSQL 连接加密保存在 `CONFIG` KV 命名空间。无法填写连接时，请在 Worker 的 **Settings → Bindings** 中添加 KV 命名空间，变量名填写 `CONFIG`，保存并部署后重新获取数据库选项。配置已保存但尚未同步时，请保留当前页面，稍候再次点击“验证并继续”。不需要在控制台预设 `DATABASE_URL`。Go 的 `database.json` 优先于启动参数和环境变量，排查时请一并检查，不要公开其中的地址。
@@ -79,9 +79,9 @@ npm run user:create -- --remote --username your-name --password 'a-new-strong-pa
 
 ## Push 地址能打开，为什么没数据
 
-浏览器打开通常发的是 GET，这个端点返回 405。改用 `curl -X POST` 或任务程序发 POST。检查返回 JSON 里是不是 `ok: true`，并确认 Token 属于当前环境。
+浏览器打开通常发的是 GET，这个端点返回 405。改用编辑页提供的 POST 示例，在 `Authorization` 请求头中携带上报密钥，状态和说明写在 JSON 请求体中。检查返回 JSON 是否为 `{"ok":true}`，并确认地址与密钥属于同一个监控、同一个部署环境。
 
-Push 不做延迟测试，`ping` 参数不代表系统测量。上报后很快超时，就对比实际任务周期和监控配置，再检查时钟、网络和调度状态。
+Push 不做延迟测试。上报后很快超时，就对比实际任务周期和上报期限，再检查时钟、网络和调度状态。
 
 ## Agent 没有数据或反复离线
 
@@ -122,7 +122,7 @@ pa command status
 
 Windows 引导脚本还要访问 `/api/public/agent/download/install.ps1`；下载失败时检查这个路径通不通。
 
-`release_not_found` 或 `release_asset_missing` 表示暂时没有可下载的稳定版本，或者所选平台不可用。`github_rate_limited` 表示 GitHub API 限流；检查网络和限额后重试。下载条件见[部署指南](deployment.md#agent-下载)。
+脚本启动后会从目标机器直接访问 GitHub。提示无法读取发布清单或下载失败时，检查这台机器能否访问 GitHub Release，以及最新稳定版是否包含 `manifest.json` 和对应平台的文件。文件大小或 SHA-256 不匹配时，脚本会停止安装。站点的版本查询失败不会阻止生成安装命令。下载条件见[部署指南](deployment.md#agent-下载)。
 
 ## 切换域名后机器停报
 
@@ -150,13 +150,13 @@ Worker 检查 R2 绑定，Go 检查主题目录是否可写。再检查 ZIP 根�
 
 ## 仍无法定位
 
-记录完整访问地址、发生时间、监控类型、检查来源、最后成功时间、HTTP 状态和业务错误码。提供脱敏日志时，移除管理密钥、机器 Token、Push 地址、通知凭据和数据库 URL，不要直接共享整个密钥文件或数据库导出。
+记录完整访问地址、发生时间、监控类型、检查来源、最后成功时间、HTTP 状态和业务错误码。提供脱敏日志时，移除管理密钥、机器 Token、Push 上报密钥、通知凭据和数据库 URL，不要直接共享整个密钥文件或数据库导出。
 
 ## Troubleshooting guide
 
 This English section summarizes the Chinese guide and links to more detailed procedures where needed.
 
-First identify the complete site URL, backend, and database. Different deployments can contain different data. Before sharing logs, remove credentials, Push URLs, notification secrets, and database URLs.
+First identify the complete site URL, backend, and database. Different deployments can contain different data. Before sharing logs, remove credentials, Push reporting keys, notification secrets, and database URLs.
 
 ### Setup and accounts
 
@@ -167,7 +167,7 @@ First identify the complete site URL, backend, and database. Different deploymen
   - **Analytics Engine missing:** enable Analytics Engine, then add a dataset in **Settings → Bindings** with the binding name `UPTIME`.
   - Save and deploy the configuration in Cloudflare, then select **Re-check**. All required items must pass before continuing. Failed checks do not reuse an earlier passing result, and form entries are preserved. R2 can be added later.
 - **Go reports no setup key:** check `POLARIS_SETUP_KEY` in the working directory's `.env` or the process environment (falling back to `POLARIS_ADMIN_TOKEN`). If neither is set and the server is uninitialized, use the `setup_key` field in the current startup log. Restart after changing the environment or `.env`. `credential_unconfigured` means no setup credential is available; `invalid_setup_credential` means the supplied value does not match. A restart invalidates the previous automatically generated key.
-- **Database choice:** Worker offers D1 and PostgreSQL when D1 is bound and PostgreSQL only otherwise; Go supports SQLite or PostgreSQL. Enter a PostgreSQL URL when selecting a new connection, for example `postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full`. Leave it blank only to reuse a deployment-configured PostgreSQL connection; the original URL is never shown. Setup initializes a fresh database, not an unknown existing schema.
+- **Database choice:** Worker offers D1 and PostgreSQL when D1 is bound and PostgreSQL only otherwise; Go supports SQLite or PostgreSQL. Enter a PostgreSQL URL when selecting a new connection, for example `postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full`. Leave it blank to reuse a saved PostgreSQL connection, whether it came from setup or the deployment configuration; the original URL is never shown. Setup initializes a fresh database, not an unknown existing schema.
 - **Persistent selection:** configure the database in step two; step three creates the account. Worker encrypts page-entered PostgreSQL connections in the `CONFIG` KV namespace. If the URL field is unavailable, bind a KV namespace as `CONFIG` in **Settings → Bindings**, save and deploy, then reload database options. If the saved configuration is still syncing, keep the page open and click “Verify and continue” again later. No deployment `DATABASE_URL` is required. Go's `database.json` takes precedence over flags and environment variables; inspect it securely when diagnosing the active connection.
 
 | Setup error | Action |
@@ -187,11 +187,11 @@ If Worker setup was interrupted and the database choice is locked, resubmit the 
 ### Missing checks or Agent data
 
 - Confirm the monitor is enabled, the target and check source are correct, and the expected environment is open. Inspect scheduler configuration and recent job errors.
-- Push requires a POST to the monitor's own URL. GET returns 405 and does not record a heartbeat. Check `ok: true`, the token, and the reporting interval.
+- Push requires a POST to the monitor's reporting URL with its key in the `Authorization: Bearer` header. Use JSON for status and message; the edit form provides an example. GET returns 405 without recording a heartbeat. Check `ok: true`, the monitor ID, the key, and the reporting deadline.
 - For an Agent, inspect `pa status`, `pa logs -n 200`, and `pa command status`. Check its endpoint, token, connection, reporting interval, permissions, and whether multiple instances share the same token. A domain change does not update installed Agents; update their endpoint and restart them.
 - If `pa` is missing, reopen the terminal or use the installed binary path. `command register` can register the command without overwriting an existing program. Service controls depend on installation mode and permissions.
 - For queued or rejected remote commands, check `security.allowAgentCommands`, connectivity, capabilities, and the service tier. Restart and upgrade need a managed tier A installation; Docker does not support in-place upgrade. Read the receipt and Agent logs.
-- If an installer returns HTML or a download fails, verify that the proxy routes `/install.sh`, `/install.ps1`, and `/api/public/agent/download/install.ps1` to the backend. `release_not_found` or `release_asset_missing` means no stable version is available for download or the selected platform is unavailable; `github_rate_limited` means the API quota was exceeded. See [deployment](deployment.md#agent-downloads).
+- If an installer returns HTML, verify that the proxy routes `/install.sh`, `/install.ps1`, and `/api/public/agent/download/install.ps1` to the backend. Once started, the script accesses GitHub directly from the target machine. For manifest or download failures, check that machine’s connection to GitHub Release downloads and confirm the latest stable release has `manifest.json` and the platform asset. Size or SHA-256 mismatches stop installation. Backend release lookup failures do not block command generation. See [deployment](deployment.md#agent-downloads).
 
 ### Notifications, presentation, and themes
 

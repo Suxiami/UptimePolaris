@@ -7,26 +7,26 @@ import { isProbeMonitorType } from '../../../../shared/backend-capabilities';
 import { AutocompleteItem, Button, Chip, Divider, Input, SelectItem, Switch, Textarea } from '@heroui/react';
 import clsx from 'clsx';
 import {
-  Check,
   ChevronDown,
-  Copy,
   FlaskConical,
   Loader2,
   Plus,
   Save,
   ShieldCheck,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import useSWR from 'swr';
 import { isActiveProbeType, requiredProbeCapabilities } from '../../../../shared/probe-capabilities';
 import { udpPacketOptions } from '../../../../shared/udp-probe';
+import { dnsExpectedError } from '../../../../shared/dns-expected';
 import { groupsApi, tagsApi } from '../groups/api';
 import type { MonitorGroup, Tag } from '../groups/types';
 import { monitorsApi } from './api';
 import { MonitorCheckFeedback } from './MonitorCheckFeedback';
+import { PushReportDetails } from './PushReportDetails';
 import { probeSourceReadiness } from './presentation';
-import { DEFAULT_DOH_RESOLVER, parseOptions, pushEndpointUrl, tagKey } from './options';
+import { DEFAULT_DOH_RESOLVER, parseOptions, tagKey } from './options';
 import type { CheckResult, DnsOptions, HttpOptions, Monitor, MonitorInput, MonitorType, TcpOptions } from './types';
 import { hostOfTarget, isIpAddress, validateAgentOptions, validateTarget } from './validation';
 
@@ -60,8 +60,6 @@ const TYPE_META: Record<
   websocket: { labelKey: 'type.websocket', targetLabelKey: 'target.url', placeholderKey: 'target.websocketPlaceholder', hintKey: 'target.websocketHint' },
   push: {
     labelKey: 'type.push',
-    // No target field; `target.pushHint` already renders under the URL field.
-    // Push 无目标字段；提示已显示在 URL 字段下，不重复。
   },
   agent: {
     labelKey: 'type.agent',
@@ -123,7 +121,7 @@ function textToHeaders(text: string): Record<string, string> {
 
 interface Props {
   monitor?: Monitor | null;
-  onSaved: () => void;
+  onSaved: (options?: { keepOpen?: boolean }) => void;
   onCancel?: () => void;
   /** Notify the host when a group or tag vocabulary changes. / 分组或标签词表变化时通知宿主。 */
   onVocabChanged?: () => void;
@@ -196,6 +194,17 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
     return monitor || !initialType ? base : { ...base, type: initialType };
   });
   const [saving, setSaving] = useState(false);
+  const [savedPush, setSavedPush] = useState<{ id: string; token: string } | null>(null);
+  const pushDraftKey = useId();
+  const needsPushCredentials = form.type === 'push' && monitor?.type !== 'push';
+  const pushDraft = useSWR(
+    needsPushCredentials && !savedPush ? ['monitor-push-credentials', pushDraftKey, monitor?.id ?? null] : null,
+    () => monitorsApi.createPushCredentials(),
+    { revalidateOnFocus: false, revalidateOnReconnect: false, revalidateIfStale: false, shouldRetryOnError: false },
+  );
+  const pushCredentials = monitor?.type === 'push' && monitor.push_token
+    ? { id: monitor.id, push_token: monitor.push_token }
+    : pushDraft.data ? { ...pushDraft.data, id: monitor?.id ?? pushDraft.data.id } : null;
   const [testing, setTesting] = useState(false);
   const testRequest = useRef<AbortController | null>(null);
   const [result, setResult] = useState<CheckResult | null>(null);
@@ -209,7 +218,6 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
     return () => { testRequest.current?.abort(); };
   }, [form]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const probeSources = useSWR('agent-probe-sources', () => monitorsApi.probeSources(), { refreshInterval: 15000, revalidateOnFocus: true });
   const probeAgents = probeSources.data?.agents ?? [];
   const probeAgentsLoaded = !probeSources.isLoading;
@@ -236,10 +244,10 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
   useEffect(() => {
     if (!monitor) return;
     setForm(toInput(monitor));
+    setSavedPush(null);
     setHeadersText(headersToText(parseOptions<HttpOptions>(monitor?.options_json).headers));
     setResult(null);
     setError(null);
-    setCopied(false);
     setGroupQuery('');
     setTagQuery('');
   }, [monitor?.id]);
@@ -409,6 +417,12 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
   const addonsDisabled = !hasAddons || !addonHost || Boolean(targetError) || isIp;
   const agentOnly = isProbeMonitorType(form.type) && !capabilities?.monitoring.nativeTypes.includes(form.type);
   const invalidUdp = form.type === 'udp' && !udpPacketOptions(formOptions);
+  const dnsRecordType = formOptions.dns?.recordType ?? 'A';
+  const dnsEnabled = form.type === 'dns' || !addonsDisabled && form.check_dns === 1;
+  const dnsError = dnsEnabled ? dnsExpectedError(dnsRecordType, formOptions.dns?.expected) : null;
+  const dnsErrorMessage = dnsError ? t(`form.dnsExpectedError.${dnsError}`) : undefined;
+  const dnsExpectedHint = t(dnsRecordType === 'A' ? 'form.dnsExpectedIpv4Hint' : dnsRecordType === 'AAAA' ? 'form.dnsExpectedIpv6Hint' :
+    dnsRecordType === 'CNAME' || dnsRecordType === 'NS' ? 'form.dnsExpectedDomainHint' : 'form.dnsExpectedHint');
 
   /**
    * Zero add-on flags at save time, not while typing.
@@ -427,7 +441,7 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
     if (isProbeMonitorType(out.type) && !selectedSource && backendSource) {
       out.options_json = JSON.stringify({ ...parseOptions<FormOptions>(out.options_json), check_source: { type: backendSource } });
     }
-    if (out.type === 'dns') {
+    if (out.type === 'dns' || out.check_dns === 1) {
       const options = parseOptions<FormOptions>(out.options_json);
       out.options_json = JSON.stringify({ ...options, dns: { ...options.dns, recordType: options.dns?.recordType ?? 'A' } });
     }
@@ -457,8 +471,9 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
     }),
   ];
   const canSubmit =
-    Boolean(capabilities?.monitoring.types.includes(form.type)) && Boolean(form.name.trim()) && (!needsTarget || Boolean(form.target.trim())) && !targetError && !invalidUdp && canCreateWithSource &&
-    (form.type !== 'agent' || Boolean(form.agent_id) && validateAgentOptions(form.options_json ?? '{}')) && !saving;
+    Boolean(capabilities?.monitoring.types.includes(form.type)) && Boolean(form.name.trim()) && (!needsTarget || Boolean(form.target.trim())) && !targetError && !invalidUdp && !dnsError && canCreateWithSource &&
+    (form.type !== 'agent' || Boolean(form.agent_id) && validateAgentOptions(form.options_json ?? '{}')) &&
+    (!needsPushCredentials || Boolean(pushCredentials)) && !saving;
 
   const patch = <K extends keyof MonitorInput>(key: K, value: MonitorInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -493,7 +508,7 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
   }
 
   async function handleTest() {
-    if (testRequest.current) return;
+    if (!canSubmit || testRequest.current) return;
     const controller = new AbortController();
     testRequest.current = controller;
     setTesting(true);
@@ -515,12 +530,27 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
   }
 
   async function handleSave() {
+    if (!canSubmit || savedPush) return;
     setSaving(true);
     setError(null);
     try {
       const payload = normalizeForSubmit(form);
-      if (monitor) await monitorsApi.updateMonitor(monitor.id, payload);
-      else await monitorsApi.createMonitor(payload);
+      if (needsPushCredentials && pushCredentials) payload.push_credentials = pushCredentials;
+      if (monitor) {
+        const response = await monitorsApi.updateMonitor(monitor.id, payload);
+        if (payload.type === 'push' && monitor.type !== 'push') {
+          setSavedPush({ id: monitor.id, token: response.push_token! });
+          onSaved({ keepOpen: true });
+          return;
+        }
+      } else {
+        const response = await monitorsApi.createMonitor(payload);
+        if (payload.type === 'push') {
+          setSavedPush({ id: response.id, token: response.push_token! });
+          onSaved({ keepOpen: true });
+          return;
+        }
+      }
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -529,26 +559,21 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
     }
   }
 
-  /**
-   * The push URL is built after save, when the Worker mints the token.
-   *
-   * No regenerate control: the contract exposes `POST /api/public/push/:token`
-   * and nothing else. Rotating the token means recreating the monitor.
-   * Push URL 在保存后由 Worker 生成令牌；轮换只能重建监控。
-   */
-  const pushUrl = pushEndpointUrl(monitor?.push_token);
-
-  async function copyPushUrl() {
-    try {
-      await navigator.clipboard.writeText(pushUrl);
-      setCopied(true);
-      // Reverts on its own so the button stops reading "Copied" once the
-      // clipboard has moved on.
-      // 两秒后自动恢复按钮文案，避免剪贴板内容变化后仍显示“已复制”。
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
+  if (savedPush) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="polaris-scroll-x flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pb-5">
+          <div role="status">
+            <h3 className="text-small font-medium">{t('form.pushReady')}</h3>
+            <p className="mt-1 text-small text-default-500">{t('form.pushReadyHint')}</p>
+          </div>
+          <PushReportDetails id={savedPush.id} token={savedPush.token} />
+        </div>
+        <div className="-mx-6 flex justify-end border-t border-[var(--polaris-line)] px-6 py-4">
+          <Button color="primary" onPress={onCancel ?? (() => onSaved())}>{t('form.pushDone')}</Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -617,6 +642,7 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
           label={t('form.agentMachine')}
           description={t('form.agentMachineHint')}
           variant="bordered"
+          className="sm:col-span-2"
           isRequired
           isLoading={!probeAgentsLoaded}
           selectedKeys={form.agent_id ? [form.agent_id] : []}
@@ -880,49 +906,25 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
           </div>
         ) : null}
 
-        {/*
-          The push URL takes the target slot rather than a box further down: it
-          is the address of this monitor, which is what that slot means for every
-          other type.
-
-          Rendered in both states, so the form's shape does not jump the moment a
-          monitor is saved. Before the token exists the input is empty with
-          `target.push` as its placeholder - "(nothing to enter)" says the
-          emptiness is the point, where a bare empty box would read as a field
-          the user has failed to fill - and the hint is the one that explains the
-          Worker will generate the address. Afterwards it carries the URL.
-
-          Push URL 占据目标字段位置，因为它是该监控项的地址，与其他类型该位置的含义一致。
-          保存前后均渲染，避免保存时表单跳动；令牌不存在时输入框为空并显示 `target.push`
-          占位符“无需输入”，提示 Worker 会生成地址；生成后显示 URL。
-        */}
         {form.type === 'push' ? (
           <div className="sm:col-span-2">
-            <div className="flex items-end gap-2">
-              <Input
-                isReadOnly
-                label={t('form.pushUrl')}
-                variant="bordered"
-                value={pushUrl}
-                placeholder={pushUrl ? undefined : t('target.push')}
-                classNames={{ input: 'font-mono text-tiny' }}
-                /* Read-only rather than disabled: a disabled input cannot be
-                   selected, and being selected and copied is this field's whole
-                   purpose.
-                   输入框只读而非禁用：禁用后无法选中，而选择和复制正是其用途。 */
-              />
-              <Button
-                variant="flat"
-                isDisabled={!pushUrl}
-                startContent={copied ? <Check size={15} /> : <Copy size={15} />}
-                onPress={copyPushUrl}
-              >
-                {copied ? t('form.pushCopied') : t('form.pushCopy')}
-              </Button>
-            </div>
-            <p className="mt-1.5 text-tiny text-default-500">
-              {pushUrl ? t('form.pushUrlHint') : t('target.pushHint')}
-            </p>
+            {pushCredentials ? (
+              <>
+                {needsPushCredentials ? <p className="mb-3 text-small text-default-500" role="status">{t('target.pushHint')}</p> : null}
+                <PushReportDetails id={pushCredentials.id} token={pushCredentials.push_token} />
+              </>
+            ) : pushDraft.error ? (
+              <div className="flex items-center gap-2">
+                <p className="text-small text-danger" role="alert">{apiErrorMessage(pushDraft.error)}</p>
+                <Button size="sm" variant="flat" isLoading={pushDraft.isValidating} isDisabled={pushDraft.isValidating}
+                  onPress={() => { void pushDraft.mutate(); }}>{t('form.pushRetry')}</Button>
+              </div>
+            ) : (
+              <p className="flex items-center gap-2 text-small text-default-500" role="status">
+                <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
+                {t('form.pushGenerating')}
+              </p>
+            )}
           </div>
         ) : null}
 
@@ -1079,7 +1081,9 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
           onChange={event => patchOptions({ dns: { ...formOptions.dns, recordType: event.target.value as DnsOptions['recordType'] } })}>
           {(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS'] as const).map(type => <SelectItem key={type}>{type}</SelectItem>)}
         </Select>
-        <Input label={t('form.dnsExpected')} value={formOptions.dns?.expected ?? ''} onValueChange={expected => patchOptions({ dns: { ...formOptions.dns, recordType: formOptions.dns?.recordType ?? 'A', expected } })} />
+        <Input label={t('form.dnsExpected')} value={formOptions.dns?.expected ?? ''}
+          isInvalid={Boolean(dnsError)} errorMessage={dnsErrorMessage} description={dnsExpectedHint}
+          onValueChange={expected => patchOptions({ dns: { ...formOptions.dns, recordType: dnsRecordType, expected } })} />
         <Input label={t('form.dnsResolver')} placeholder={t('form.dnsSystemPlaceholder')} description={t('form.dnsSystemHint')} value={formOptions.dns?.resolver ?? ''}
           onValueChange={resolver => patchOptions({ dns: { ...formOptions.dns, recordType: formOptions.dns?.recordType ?? 'A', resolver } })} />
       </div> : null}
@@ -1336,7 +1340,9 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
                       size="sm"
                       value={options.dns?.expected ?? ''}
                       onValueChange={(v) => patchDns({ expected: v })}
-                      description={t('form.dnsExpectedHint')}
+                      isInvalid={Boolean(dnsError)}
+                      errorMessage={dnsErrorMessage}
+                      description={dnsExpectedHint}
                     />
 
                     <div className="sm:col-span-2">
@@ -1470,7 +1476,7 @@ export function MonitorForm({ monitor, onSaved, onCancel, onVocabChanged, defaul
           onPress={handleSave}
           isDisabled={!canSubmit || testing}
         >
-          {saving ? t('action.saving') : t('action.save')}
+          {saving ? t('action.saving') : form.type === 'push' && monitor?.type !== 'push' ? t('form.pushCreate') : t('action.save')}
         </Button>
       </div>
       </div>

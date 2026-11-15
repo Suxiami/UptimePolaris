@@ -1,0 +1,500 @@
+{
+  "defaults": {
+    "monitor": {
+      "accent": "#6366F1",
+      "radius": 12,
+      "width": 1440,
+      "density": "normal",
+      "columns": 3,
+      "showHistory": true,
+      "layout": "list",
+      "showLatency": true,
+      "showAvailability": true,
+      "showExpiry": true
+    },
+    "agent": {
+      "accent": "#6366F1",
+      "radius": 12,
+      "width": 1440,
+      "density": "normal",
+      "columns": 3,
+      "showHistory": true,
+      "layout": "cards",
+      "showCountry": true
+    }
+  },
+  "configured": {
+    "monitor": {
+      "accent": "#aBcDeF",
+      "radius": 0,
+      "width": 720,
+      "density": "compact",
+      "layout": "cards",
+      "columns": 1,
+      "showHistory": false,
+      "showLatency": false,
+      "showAvailability": false,
+      "showExpiry": false
+    },
+    "agent": {
+      "accent": "#123456",
+      "radius": 32,
+      "width": 1920,
+      "density": "comfortable",
+      "layout": "list",
+      "columns": 4,
+      "showHistory": false,
+      "showCountry": false
+    }
+  },
+  "cases": [
+    {
+      "name": "monitor:empty",
+      "kind": "monitor",
+      "values": {},
+      "valid": true
+    },
+    {
+      "name": "monitor:configured",
+      "kind": "monitor",
+      "values": {
+        "accent": "#aBcDeF",
+        "radius": 0,
+        "width": 720,
+        "density": "compact",
+        "layout": "cards",
+        "columns": 1,
+        "showHistory": false,
+        "showLatency": false,
+        "showAvailability": false,
+        "showExpiry": false
+      },
+      "valid": true
+    },
+    {
+      "name": "monitor:null",
+      "kind": "monitor",
+      "values": null,
+      "valid": false
+    },
+    {
+      "name": "monitor:array",
+      "kind": "monitor",
+      "values": [],
+      "valid": false
+    },
+    {
+      "name": "monitor:string",
+      "kind": "monitor",
+      "values": "",
+      "valid": false
+    },
+    {
+      "name": "monitor:title",
+      "kind": "monitor",
+      "values": {
+        "title": "not an option"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:description",
+      "kind": "monitor",
+      "values": {
+        "description": "not an option"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:unknown",
+      "kind": "monitor",
+      "values": {
+        "unknown": true
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:accent-short",
+      "kind": "monitor",
+      "values": {
+        "accent": "#abc"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:accent-alpha",
+      "kind": "monitor",
+      "values": {
+        "accent": "#123456ff"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:accent-newline",
+      "kind": "monitor",
+      "values": {
+        "accent": "#123456\n"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:accent-nonhex",
+      "kind": "monitor",
+      "values": {
+        "accent": "#gggggg"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:radius-low",
+      "kind": "monitor",
+      "values": {
+        "radius": -1
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:radius-high",
+      "kind": "monitor",
+      "values": {
+        "radius": 33
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:radius-fraction",
+      "kind": "monitor",
+      "values": {
+        "radius": 12.5
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:radius-string",
+      "kind": "monitor",
+      "values": {
+        "radius": "12"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:radius-null",
+      "kind": "monitor",
+      "values": {
+        "radius": null
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:width-low",
+      "kind": "monitor",
+      "values": {
+        "width": 719
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:width-high",
+      "kind": "monitor",
+      "values": {
+        "width": 1921
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:width-fraction",
+      "kind": "monitor",
+      "values": {
+        "width": 1440.5
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:columns-low",
+      "kind": "monitor",
+      "values": {
+        "columns": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:columns-high",
+      "kind": "monitor",
+      "values": {
+        "columns": 5
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:columns-fraction",
+      "kind": "monitor",
+      "values": {
+        "columns": 2.5
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:density-invalid",
+      "kind": "monitor",
+      "values": {
+        "density": "dense"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:layout-invalid",
+      "kind": "monitor",
+      "values": {
+        "layout": "grid"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:boolean-string",
+      "kind": "monitor",
+      "values": {
+        "showHistory": "false"
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:boolean-number",
+      "kind": "monitor",
+      "values": {
+        "showHistory": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "monitor:wrong-page-option",
+      "kind": "monitor",
+      "values": {
+        "showCountry": false
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:empty",
+      "kind": "agent",
+      "values": {},
+      "valid": true
+    },
+    {
+      "name": "agent:configured",
+      "kind": "agent",
+      "values": {
+        "accent": "#123456",
+        "radius": 32,
+        "width": 1920,
+        "density": "comfortable",
+        "layout": "list",
+        "columns": 4,
+        "showHistory": false,
+        "showCountry": false
+      },
+      "valid": true
+    },
+    {
+      "name": "agent:null",
+      "kind": "agent",
+      "values": null,
+      "valid": false
+    },
+    {
+      "name": "agent:array",
+      "kind": "agent",
+      "values": [],
+      "valid": false
+    },
+    {
+      "name": "agent:string",
+      "kind": "agent",
+      "values": "",
+      "valid": false
+    },
+    {
+      "name": "agent:title",
+      "kind": "agent",
+      "values": {
+        "title": "not an option"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:description",
+      "kind": "agent",
+      "values": {
+        "description": "not an option"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:unknown",
+      "kind": "agent",
+      "values": {
+        "unknown": true
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:accent-short",
+      "kind": "agent",
+      "values": {
+        "accent": "#abc"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:accent-alpha",
+      "kind": "agent",
+      "values": {
+        "accent": "#123456ff"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:accent-newline",
+      "kind": "agent",
+      "values": {
+        "accent": "#123456\n"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:accent-nonhex",
+      "kind": "agent",
+      "values": {
+        "accent": "#gggggg"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:radius-low",
+      "kind": "agent",
+      "values": {
+        "radius": -1
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:radius-high",
+      "kind": "agent",
+      "values": {
+        "radius": 33
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:radius-fraction",
+      "kind": "agent",
+      "values": {
+        "radius": 12.5
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:radius-string",
+      "kind": "agent",
+      "values": {
+        "radius": "12"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:radius-null",
+      "kind": "agent",
+      "values": {
+        "radius": null
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:width-low",
+      "kind": "agent",
+      "values": {
+        "width": 719
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:width-high",
+      "kind": "agent",
+      "values": {
+        "width": 1921
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:width-fraction",
+      "kind": "agent",
+      "values": {
+        "width": 1440.5
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:columns-low",
+      "kind": "agent",
+      "values": {
+        "columns": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:columns-high",
+      "kind": "agent",
+      "values": {
+        "columns": 5
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:columns-fraction",
+      "kind": "agent",
+      "values": {
+        "columns": 2.5
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:density-invalid",
+      "kind": "agent",
+      "values": {
+        "density": "dense"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:layout-invalid",
+      "kind": "agent",
+      "values": {
+        "layout": "grid"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:boolean-string",
+      "kind": "agent",
+      "values": {
+        "showHistory": "false"
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:boolean-number",
+      "kind": "agent",
+      "values": {
+        "showHistory": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "agent:wrong-page-option",
+      "kind": "agent",
+      "values": {
+        "showLatency": false
+      },
+      "valid": false
+    }
+  ]
+}

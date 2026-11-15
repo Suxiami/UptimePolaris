@@ -12,7 +12,7 @@ import { initializePostgres } from '../db/setup-postgres';
 import { abandonDatabaseClaim, claimDatabase, completedOperation, d1HasUsers, databaseClaimActive, deployedDatabase, discardPendingDatabase, finishDatabaseClaim, markAccountStarted, pendingDatabase, pendingDatabaseUrl, releaseDatabaseClaim, resetAccountStarted, saveDatabaseConfiguration, setupDatabaseOptions } from '../db/setup-control';
 import { visibilityRevisionWrite } from '../public/cache';
 import { MAX_AVATAR_BYTES, readAvatarImage, readAvatarInfo, removeAvatar, validAvatarImage, writeAvatar } from './avatar';
-import { databaseConfigured, setupRequirements } from './setup-requirements';
+import { databaseConfigured, missingSetupRequirements, setupRequirements } from './setup-requirements';
 import {
   clearFailures,
   clearLoginAttempts,
@@ -164,13 +164,14 @@ async function setupSelection(env: Env, selection: unknown, allowChange = false)
 }
 
 authRoutes.post('/api/auth/setup/database', async (c) => {
-  if (!c.env.UPTIME) return c.json({ error: 'deployment_incomplete' }, 503);
   let body: unknown;
   try { body = await c.req.json<unknown>(); } catch { return c.json({ error: 'invalid_request' }, 400); }
   if (!isObjectBody(body)) return c.json({ error: 'invalid_request' }, 400);
   const expected = installationCredential(c.env);
   if (!expected) return c.json({ error: 'credential_unconfigured' }, 503);
   if (typeof body.credential !== 'string' || !safeEqual(body.credential, expected)) return c.json({ error: 'invalid_setup_credential' }, 401);
+  const missing = missingSetupRequirements(c.env);
+  if (missing.length) return c.json({ error: 'deployment_incomplete', missing: missing.map(item => item.key) }, 503);
   const pending = await pendingDatabase(c.env);
   if (await databaseClaimActive(c.env) || !pending && await d1HasUsers(c.env)) return c.json({ error: 'setup_complete' }, 409);
   if (!pending && databaseConfigured(c.env)) {
@@ -215,7 +216,6 @@ authRoutes.post('/api/auth/setup/database', async (c) => {
 });
 
 authRoutes.post('/api/auth/setup', async (c) => {
-  if (!c.env.UPTIME) return c.json({ error: 'deployment_incomplete' }, 503);
   let body: unknown;
   try {
     body = await c.req.json<unknown>();
@@ -235,6 +235,8 @@ authRoutes.post('/api/auth/setup', async (c) => {
   /** No setup secret is bound; distinct from a wrong credential. / 没有配置初始化密钥；与凭据错误区分。 */
   if (!expected) return c.json({ error: 'credential_unconfigured' }, 503);
   if (!safeEqual(credential, expected)) return c.json({ error: 'invalid_setup_credential' }, 401);
+  const missing = missingSetupRequirements(c.env);
+  if (missing.length) return c.json({ error: 'deployment_incomplete', missing: missing.map(item => item.key) }, 503);
   if (!normalizeUsername(username)) return c.json({ error: 'invalid_username' }, 400);
   if (password.length < 8) return c.json({ error: 'password_too_short' }, 400);
   const pending = await pendingDatabase(c.env);

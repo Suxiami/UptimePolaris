@@ -857,10 +857,7 @@ function ChannelRow({ c, stat, busy, groupName, toggleActive, test, onEdit, onDe
         </div>
       ) : null}
 
-      <div className="-mb-1 flex items-center gap-1 border-t border-[var(--polaris-line-soft)] pt-2">
-        <span className="mr-auto text-[11px] text-default-400">
-          {c.active === 1 ? t('notify.enabled') : t('notify.disabled')}
-        </span>
+      <div className="-mb-1 flex items-center justify-end gap-1 border-t border-[var(--polaris-line-soft)] pt-2">
         <Button
           size="sm"
           variant="light"

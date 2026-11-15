@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configOption, envOption, persistOption, wrangler } from '../wrangler-cli.mjs';
 import { startDevRuntime } from './dev-runtime.mjs';
@@ -47,6 +49,32 @@ if (!remote && process.env.UPTIME_DEV_NOTIFICATIONS === 'off') {
   serverArgs.push('--var', 'AUTOMATIC_NOTIFICATIONS_DISABLED:true');
   console.log('[dev] Automatic notifications are paused for this local session; monitoring and events remain enabled.');
 }
+/**
+ * 本地开发需要 `CONFIG` KV 才能通过部署检查，但 `wrangler dev` 没有绑定参数。
+ * 因此在临时目录生成一份配置副本，持久化路径指向临时状态；配置文件原地保留。
+ * Local development needs a `CONFIG` KV binding to pass the deployment check, and `wrangler dev` has no binding flag.
+ * A throwaway config copy with a temp state directory is used instead, leaving the tracked config untouched.
+ */
+function localConfig() {
+  const selected = configOption(serverArgs);
+  const source = selected ? resolve(selected.value ?? '') : join(here, '..', '..', 'backends', 'worker', 'wrangler.toml');
+  if (!existsSync(source)) return null;
+  const text = readFileSync(source, 'utf8');
+  if (/^\s*\[\[kv_namespaces\]\]\s*\n\s*binding\s*=\s*"CONFIG"/m.test(text)) return null;
+  const directory = mkdtempSync(join(tmpdir(), 'polaris-dev-'));
+  const target = join(directory, 'wrangler.toml');
+  writeFileSync(target, `${text.trimEnd()}\n\n# 本地开发注入：初始化检查要求 CONFIG 绑定。\n# Injected for local development: the setup check requires a CONFIG binding.\n[[kv_namespaces]]\nbinding = "CONFIG"\nid = "local-dev-config"\n`, 'utf8');
+  return { target, directory };
+}
+const injected = remote ? null : localConfig();
+if (injected) {
+  const index = serverArgs.indexOf('--config');
+  if (index >= 0) serverArgs.splice(index, 2);
+  const inline = serverArgs.findIndex(value => value.startsWith('--config=') || value.startsWith('-c=') || /^-c./.test(value));
+  if (inline >= 0) serverArgs.splice(inline, 1);
+  serverArgs.push('--config', injected.target);
+  console.log('[dev] Injected a local CONFIG KV binding for the setup check.');
+}
 const server = spawn(...wrangler(serverArgs), { stdio: 'inherit', windowsHide: true });
 const serverClosed = new Promise(resolve => {
   server.once('error', error => { console.error(`[dev] Could not start Wrangler: ${error.message}`); resolve({ code: 1 }); });
@@ -75,4 +103,5 @@ if (!remote) {
 }
 const outcome = await serverClosed;
 await runtime?.close();
+if (injected) rmSync(injected.directory, { recursive: true, force: true });
 process.exitCode = startupFailed ? 1 : stopping === 'SIGINT' ? 130 : outcome.code;

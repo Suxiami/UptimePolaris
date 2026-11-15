@@ -36,7 +36,7 @@ const bundled = await build({
   ],
 });
 
-const mf = new Miniflare({
+const mf = new Miniflare({ kvNamespaces: { CONFIG: 'e2e-config' },
   modules: true,
   script: bundled.outputFiles[0].text,
   compatibilityDate: '2025-01-01',

@@ -504,7 +504,7 @@ console.log('\ncheckPush\n');
 
   check('a fresh push is UP', checks.pushFresh.status === 1, checks.pushFresh);
   eq('and carries the pushed message', checks.pushFresh.message, 'backup ok');
-  eq('and the pushed ping as its latency', checks.pushFresh.latencyMs, 4213);
+  eq('and does not fabricate a transport latency', checks.pushFresh.latencyMs, 0);
 
   check('a pushed 0 is DOWN', checks.pushFreshDown.status === 0, checks.pushFreshDown);
   eq('and keeps the pushed message', checks.pushFreshDown.message, 'job failed');
@@ -703,12 +703,11 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
   );
   check('POST accepts a push monitor with no target', created.status === 201, created);
   const token = created.body.push_token;
-  check('and returns a 32-hex push token', typeof token === 'string' && /^[0-9a-f]{32}$/.test(token), token);
+  check('and returns a 48-hex push token', typeof token === 'string' && /^[0-9a-f]{48}$/.test(token), token);
 
-  // The public write path, with no credentials at all.
-  // 完全不带凭据的公开写入路径。
-  const ping = await readJson(await mf.dispatchFetch(`${origin}/api/public/push/${token}?status=1&msg=backup+ok&ping=4213`, { method: 'POST' }));
-  check('POST /api/public/push/:token needs no credentials', ping.status === 200, ping);
+  const pushAuth = { authorization: `Bearer ${token}` };
+  const ping = await readJson(await post(`/api/public/push/${created.body.id}`, { status: 1, message: 'backup ok' }, 'POST', pushAuth));
+  check('POST /api/public/push/:id accepts the monitor credential', ping.status === 200, ping);
   eq('and answers ok', ping.body, { ok: true });
 
   const row = await mf.getD1Database('DB');
@@ -718,25 +717,24 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
   check('the heartbeat was recorded', stored !== null, stored);
   eq('with the pushed status', stored?.status, 1);
   eq('the pushed message', stored?.msg, 'backup ok');
-  eq('and the pushed ping', stored?.ping, 4213);
+  eq('without a fabricated ping', stored?.ping, 0);
 
   /* 用从未上报的第二个监控证明 GET 不写入心跳。
    * Use a second monitor without reports to show that GET does not write a heartbeat. */
   const silent = await readJson(
     await post('/api/monitors', { name: 'never pinged', type: 'push' }, 'POST', auth),
   );
-  const silentToken = silent.body.push_token;
+  const silentAuth = { authorization: `Bearer ${silent.body.push_token}` };
   const countFor = async (id) => (await row
     .prepare('SELECT COUNT(*) AS n FROM push_heartbeats WHERE monitor_id = ?')
     .bind(id)
     .first()).n;
   eq('a fresh push monitor starts with no heartbeat', await countFor(silent.body.id), 0);
 
-  const viaGetResponse = await mf.dispatchFetch(`${origin}/api/public/push/${silentToken}?status=0`);
+  const viaGetResponse = await mf.dispatchFetch(`${origin}/api/public/push/${silent.body.id}`);
   const viaGet = await readJson(viaGetResponse);
-  check('GET /api/public/push/:token is refused with 405', viaGet.status === 405, viaGet);
+  check('GET /api/public/push/:id is refused with 405', viaGet.status === 405, viaGet);
   eq('and says which method to use', viaGet.body.error, 'method_not_allowed');
-  check('with a hint naming POST', /POST/.test(viaGet.body.hint ?? ''), viaGet.body.hint);
   eq('and advertises Allow: POST', viaGetResponse.headers.get('allow'), 'POST');
 
   eq('GET produces no push_heartbeats row', await countFor(silent.body.id), 0);
@@ -751,7 +749,7 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
   // POST still writes: the one write path the route keeps.
   // POST 仍会写入，这是路由保留的唯一写入路径。
   const pingAgain = await readJson(
-    await mf.dispatchFetch(`${origin}/api/public/push/${silentToken}?status=0&msg=late`, { method: 'POST' }),
+    await post(`/api/public/push/${silent.body.id}`, { status: 0, message: 'late' }, 'POST', silentAuth),
   );
   eq('POST still writes after a refused GET', pingAgain.body, { ok: true });
   eq('POST produces a push_heartbeats row', await countFor(silent.body.id), 1);
@@ -762,9 +760,9 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
   eq('and stores the POSTed status', rewritten.status, 0);
   eq('and the POSTed message', rewritten.msg, 'late');
 
-  const unknown = await readJson(await mf.dispatchFetch(`${origin}/api/public/push/deadbeef`, { method: 'POST' }));
-  check('an unknown token is 404', unknown.status === 404, unknown);
-  eq('with a fixed error, and never the token back', unknown.body, { error: 'unknown_token' });
+  const unknown = await readJson(await mf.dispatchFetch(`${origin}/api/public/push/deadbeef`, { method: 'POST', headers: pushAuth }));
+  check('an unknown monitor has the same authentication failure', unknown.status === 401, unknown);
+  eq('with a fixed error, and never the credential back', unknown.body, { error: 'unauthorized' });
 
   /** Push route is public; notification routes are not. / Push 路由公开；通知路由不公开。 */
   const notifications = await mf.dispatchFetch(`${origin}/api/notifications`);
@@ -790,7 +788,7 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
     await post('/api/monitors', {
       name: 'zone apex', type: 'http', target: 'https://example.com',
       check_dns: 1,
-      options_json: JSON.stringify({ dns: { recordType: 'A', expected: '203.' } }),
+      options_json: JSON.stringify({ dns: { recordType: 'A', expected: '203.0.113.10' } }),
     }, 'POST', auth),
   );
   check('POST accepts an http monitor with check_dns', dnsAddon.status === 201, dnsAddon);
@@ -801,7 +799,7 @@ const readJson = async (res) => ({ status: res.status, body: await res.json() })
   eq('check_dns is stored as 1', dnsRow.check_dns, 1);
   check(
     'the dns options block is stored as a sub-object',
-    dnsRow.options_json.includes('"dns":{"recordType":"A","expected":"203."}'),
+    dnsRow.options_json.includes('"dns":{"recordType":"A","expected":"203.0.113.10"}'),
     dnsRow.options_json,
   );
 

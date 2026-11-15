@@ -16,12 +16,9 @@ import { Check, Copy, Plus, RadioTower, RefreshCw, Server } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import {
-  agentBinaryUrl,
-  groupAgentBuilds,
   installModesForPlatform,
   safeInstallCommand,
   type InstallMode,
-  type InstallPlatform,
 } from '../../../../shared/agent-install';
 import { AgentCommandHelp } from './AgentCommandHelp';
 import { agentsApi, taxonomyApi } from './api';
@@ -61,7 +58,6 @@ export function AddAgentPanel({
   const [filters, setFilters] = useState({ includeNics: '', excludeNics: '', includeMounts: '', excludeMounts: '' });
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [registerCommand, setRegisterCommand] = useState(true);
-  const [platforms, setPlatforms] = useState<Array<{ key: string; version: string }>>([]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -106,35 +102,6 @@ export function AddAgentPanel({
   };
 
   const endpoint = window.location.origin;
-  const downloadUrl = `${endpoint}/api/public/agent/download`;
-
-  // Builds are listed once per open; the catalogue changes with releases, not
-  // with the operator's clicks.
-  // 每次打开时列出一次构建；构建目录随版本发布变化，不随操作人员点击变化。
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    requestJson<{ platforms?: Array<{ key: string; version: string }> }>(`${endpoint}/api/public/agent/capabilities`, { signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        const available = data.platforms ?? [];
-        setPlatforms(available);
-        if (available.length > 0) setInstallMode(installModesForPlatform(available[0].key.split('-')[0] as InstallPlatform)[0]);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(apiErrorMessage(error));
-      });
-    return () => {
-      controller.abort();
-    };
-  }, [open, endpoint]);
-
-  /**
-   * The cadence has to be a coherent pair: the agent samples more often than it
-   * reports, and neither number is allowed past the installer's own bounds.
-   *
-   * 采样和上报间隔必须相互匹配：采样更频繁，且两者均不得超出安装器限制。
-   */
   const cadenceInvalid =
     !/^\d+$/.test(sampleInterval) ||
     !/^\d+$/.test(reportInterval) ||
@@ -142,74 +109,31 @@ export function AddAgentPanel({
     Number(reportInterval) > 1800 ||
     Number(sampleInterval) > Number(reportInterval);
 
-  /**
-   * One command per published build, not one behind a picker.
-   *
-   * The console cannot see the target's architecture; asking the operator to
-   * declare it meant guessing wrong produced an installer that refused to run.
-   * Listing each build with its command removes the question.
-   * 架构不可见，让用户先选会选错；每个构建直接给一条命令。
-   */
+  const installModes = installModesForPlatform('linux');
   const installCommands = useMemo(() => {
     if (!created || cadenceInvalid) return [];
-    return groupAgentBuilds(platforms)
-      .flatMap((build) => {
-        const os = build.os;
-        const modes = installModesForPlatform(os);
-        if (!modes.includes(installMode)) return [];
-        const mode = installMode;
-        const command = safeInstallCommand(
-          {
-            platformKey: build.downloadKey,
-            detectPlatform: true,
-            registerCommand,
-            endpoint,
-            token: created.token,
-            mode,
-            sampleInterval: Number(sampleInterval),
-            reportInterval: Number(reportInterval),
-            ...filters,
-            installDir,
-            autoUpdate: autoUpdate && mode !== 'docker' && mode !== 'manual',
-          },
-          os,
-        ).command;
-        return command ? [{ ...build, command }] : [];
-      });
-  }, [
-    created,
-    cadenceInvalid,
-    platforms,
-    installMode,
-    endpoint,
-    sampleInterval,
-    reportInterval,
-    filters,
-    installDir,
-    autoUpdate,
-    registerCommand,
-  ]);
+    return ([
+      { os: 'linux', label: 'Linux' },
+      { os: 'windows', label: 'Windows' },
+      { os: 'darwin', label: 'macOS' },
+    ] as const).flatMap(({ os, label }) => {
+      if (!installModesForPlatform(os).includes(installMode)) return [];
+      const result = safeInstallCommand({
+        detectPlatform: true,
+        registerCommand,
+        endpoint,
+        token: created.token,
+        mode: installMode,
+        sampleInterval: Number(sampleInterval),
+        reportInterval: Number(reportInterval),
+        ...filters,
+        installDir,
+        autoUpdate: autoUpdate && installMode !== 'docker' && installMode !== 'manual',
+      }, os);
+      return [{ key: os, label, ...result }];
+    });
+  }, [created, cadenceInvalid, installMode, endpoint, sampleInterval, reportInterval, filters, installDir, autoUpdate, registerCommand]);
 
-  /** The OS family the mode labels are worded for. / 安装模式标签所针对的操作系统系列。 */
-  const modeOS = (platforms[0]?.key.split('-')[0] ?? 'linux') as InstallPlatform;
-
-  /** The mode labels the chosen platform family offers, for the selector. / 所选平台系列提供的安装模式标签，供选择器使用。 */
-  const installModes = useMemo(() => {
-    const os = platforms[0]?.key.split('-')[0] as InstallPlatform | undefined;
-    return os ? installModesForPlatform(os) : [];
-  }, [platforms]);
-
-  /**
-   * Watch for the agent's first report.
-   *
-   * Polled rather than pushed: the agent talks to the Worker, not to this
-   * drawer, and there is no channel back to a browser tab. Three seconds is
-   * short enough that an operator watching the command run sees it land, and
-   * cheap enough that a drawer left open costs one small request.
-   *
-   * 轮询首次上报：Agent 与 Worker 通信，没有直接推送到此浏览器抽屉的通道。
-   * 三秒间隔既能让观看安装的操作人员及时看到结果，也让打开的抽屉只产生少量请求。
-   */
   const pollRef = useRef<number | null>(null);
   const stopPolling = useCallback(() => {
     if (pollRef.current !== null) {
@@ -328,37 +252,24 @@ export function AddAgentPanel({
                 />
               </div>
 
-              {taxonomy.enabled ? <TaxonomyFields groups={taxonomy.groups} tags={taxonomy.tags} groupId={groupId} tagIds={tagIds} onGroupChange={setGroupId} onTagsChange={setTagIds} disabled={busy || !!taxonomy.error} /> : null}
+              {taxonomy.enabled ? <TaxonomyFields groups={taxonomy.groups} tags={taxonomy.tags} groupId={groupId} tagIds={tagIds} onGroupChange={setGroupId} onTagsChange={setTagIds} onCreateGroup={taxonomy.createGroup} onCreateTag={taxonomy.createTag} disabled={busy || !!taxonomy.error} /> : null}
               {taxonomy.error ? <p role="alert" className="text-small text-danger">{apiErrorMessage(taxonomy.error)}</p> : null}
               {taxonomy.enabled ? <Switch isSelected={isPublic} onValueChange={setIsPublic} isDisabled={busy}>{ta('action.showOnPublic')}</Switch> : null}
               <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
                 <div className="min-w-0">
                   <p className="text-tiny font-medium">{t('addProbeNode')}</p>
-                  <p className="mt-0.5 text-tiny text-default-500">{t('addProbeNodeHint')}</p>
+                  <p id="add-agent-probe-hint" className="mt-0.5 text-tiny text-default-500">{t('addProbeNodeHint')}</p>
                 </div>
-                <Switch size="sm" isSelected={probeEnabled} onValueChange={setProbeEnabled}>
-                  {probeEnabled ? t('agentActiveOn') : t('agentActiveOff')}
-                </Switch>
+                <Switch size="sm" aria-label={t('addProbeNode')} aria-describedby="add-agent-probe-hint" classNames={{ base: 'shrink-0' }} isSelected={probeEnabled} onValueChange={setProbeEnabled} />
               </div>
 
-              {/*
-                The installer's settings, asked before the command exists.
-
-                These are the choices that decide what lands on the host -
-                platform, how it is supervised, how often it samples, and what
-                it includes - so they belong to the configure step rather than
-                to the screen that only prints the result.
-
-                平台、进程管理方式、采样频率及包含内容决定主机上安装的内容，
-                因此在配置步骤询问，而不是放在只展示命令的结果页。
-              */}
               <div className="flex flex-col gap-3">
                 <p className="text-tiny font-medium text-default-500">{t('installSettings')}</p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Select
                     items={installModes.map((value) => ({
                       key: value,
-                      label: ta(value === 'manual' || value === 'docker' ? `agent.mode_${value}` : `agent.mode_${value}_${modeOS}`),
+                      label: ta(value === 'manual' || value === 'docker' ? `agent.mode_${value}` : `agent.mode_${value}`),
                     }))}
                     label={ta('agent.installMode')}
                     selectedKeys={installModes.includes(installMode) ? [installMode] : []}
@@ -419,11 +330,9 @@ export function AddAgentPanel({
                   <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
                     <div className="min-w-0">
                       <p className="text-tiny font-medium">{ta('agent.autoUpdate')}</p>
-                      <p className="mt-0.5 text-tiny text-default-500">{ta('agent.autoUpdateHint')}</p>
+                      <p id="add-agent-auto-update-hint" className="mt-0.5 text-tiny text-default-500">{ta('agent.autoUpdateHint')}</p>
                     </div>
-                    <Switch size="sm" isSelected={autoUpdate} onValueChange={setAutoUpdate}>
-                      {autoUpdate ? t('agentActiveOn') : t('agentActiveOff')}
-                    </Switch>
+                    <Switch size="sm" aria-label={ta('agent.autoUpdate')} aria-describedby="add-agent-auto-update-hint" classNames={{ base: 'shrink-0' }} isSelected={autoUpdate} onValueChange={setAutoUpdate} />
                   </div>
                 ) : null}
                 <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
@@ -475,18 +384,17 @@ export function AddAgentPanel({
                           color="primary"
                           variant="flat"
                           startContent={copiedKey === entry.key ? <Check size={14} /> : <Copy size={14} />}
-                          onPress={() => void copy(entry.command, entry.key)}
+                          isDisabled={!entry.command}
+                          onPress={() => { if (entry.command) void copy(entry.command, entry.key); }}
                         >
                           {copiedKey === entry.key ? t('installTokenCopied') : t('installTokenCopy')}
                         </Button>
                       </div>
-                      <code className="break-all rounded-medium bg-content2 px-3 py-2 font-mono text-tiny text-default-700 whitespace-pre-wrap">
-                        {entry.command}
-                      </code>
-                      <div className="flex flex-wrap items-center gap-2 text-tiny">
-                        <span className="text-default-400">{ta('agent.downloadBinary')}</span>
-                        {entry.builds.map((build) => <a key={build.key} href={agentBinaryUrl(downloadUrl, build.key)} className="text-primary underline-offset-2 hover:underline">{build.key.slice(entry.os.length + 1)}</a>)}
-                      </div>
+                      {entry.command ? (
+                        <code className="break-all rounded-medium bg-content2 px-3 py-2 font-mono text-tiny text-default-700 whitespace-pre-wrap">
+                          {entry.command}
+                        </code>
+                      ) : <p role="alert" className="text-tiny text-danger-600">{entry.error}</p>}
                     </div>
                   ))}
 

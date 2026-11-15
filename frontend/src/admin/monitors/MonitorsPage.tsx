@@ -601,9 +601,11 @@ export function MonitorsPage() {
                   initialType={newType}
                   // From the overview already loaded; first paint uses registry defaults. / 使用已加载的概览；首次绘制用注册表默认值。
                   defaults={data?.defaults}
-                  onSaved={async () => {
-                    onClose();
-                    setEditing(null);
+                  onSaved={async (options) => {
+                    if (!options?.keepOpen) {
+                      onClose();
+                      setEditing(null);
+                    }
                     await load();
                     toast.success(t('toast.saved'));
                   }}

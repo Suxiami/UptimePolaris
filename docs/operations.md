@@ -70,7 +70,7 @@ AE 单次调用最多写入 250 个点。一次 tick 超过上限时，历史写
 | Worker `CONFIG` KV | 后台设置（`settings`）和初始化选库记录（`database`） |
 | R2 `THEMES` | 已安装主题的不可变资源，与数据库中的 prefix/revision 对应 |
 | Worker 密钥 | `ADMIN_TOKEN`、数据库 URL 和其他已配置的密钥；用独立的受保护渠道保存 |
-| Worker 初始化选库记录 | 网页选库所用的 D1 绑定及其控制记录；选择 PostgreSQL 后仍需保留该绑定 |
+| Worker 初始化选库记录 | `CONFIG` KV 中的 `database` 键，以及所选数据库里的 `_polaris_database` 控制记录；只有选择 D1 时才需要备份 `DB` 绑定 |
 | Go 数据与配置 | 停止服务后备份整个数据目录、主题、`POLARIS_*` 配置；PostgreSQL 另备份数据库 |
 | 部署配置 | 实际使用的配置、域名设置和服务版本 |
 | Agent | 重要机器的配置与安装元数据，按敏感文件保存 |
@@ -93,7 +93,7 @@ Go 在数据目录的 `database.json` 里保存初始化时的显式选库结果
 
 1. 准备空目标数据库，确认导出文件来自正确的环境。
 2. 导入备份；D1 可以用 `wrangler d1 execute` 的 `--file`。原手动部署必须显式指定 `--config backends/worker/wrangler.toml`，并核对目标账号和数据库。
-3. 恢复对应的 R2 对象，并核对数据库记录里的资源前缀。
+3. 恢复对应的 R2 对象和 `CONFIG` KV 命名空间（后台设置与选库记录），并核对数据库记录里的资源前缀。
 4. 恢复密钥和配置，用对应服务版本启动。
 5. 验证账号、监控数量、最新历史、主题入口和 Agent 上报。
 6. 再应用验证过的新迁移，最后切正式入口。
@@ -187,7 +187,7 @@ For a manually configured Worker D1, after confirming the account and target dat
 npx wrangler d1 export DATABASE_NAME --remote --output .secrets/d1-backup.sql --config backends/worker/wrangler.toml
 ```
 
-Fork and button deployments keep no database ID in `wrangler.jsonc`; confirm which database `DB` points to under the Worker's **Settings → Bindings** before operating on it. Restore first to a separate empty database and temporary entry point, restore matching theme files and secrets, then check accounts, monitors, history and Agent reports before switching production. A complete schema export should not be repeatedly imported into an initialized database.
+Fork and button deployments keep no database ID in `wrangler.jsonc`; confirm which database `DB` points to under the Worker's **Settings → Bindings** before operating on it. Restore first to a separate empty database and temporary entry point, restore matching theme files, the `CONFIG` KV namespace (console settings and setup selection) and secrets, then check accounts, monitors, history and Agent reports before switching production. A complete schema export should not be repeatedly imported into an initialized database.
 
 ### Database migration and retention
 

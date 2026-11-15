@@ -2,7 +2,7 @@
 
 [English](#english)
 
-配置分四层：部署绑定、Worker 环境变量、数据库里的后台设置，以及 Agent 自己的配置。它们入口不同，不能互相替代。
+配置分四层：部署绑定、Worker 环境变量、`CONFIG` KV 中的后台设置，以及 Agent 自己的配置。它们入口不同，不能互相替代。
 
 Go 的环境变量和启动参数见 [Go 后端说明](../backends/go/README.md#部署配置)。Go 不用下面的 Cloudflare 绑定；后台设置两边共用，间隔和超时范围按所选后端执行。
 
@@ -33,7 +33,7 @@ postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full
 
 URL 需包含协议（`postgres://` 或 `postgresql://`）、用户名、密码、主机名和数据库名，密码中的特殊字符需做 URL 编码；查询参数仅支持 `sslmode`（`verify-full` 或 `require`，Go 本机回环测试可用 `disable`）。数据库验证会为空库建表，但不会创建管理员；账号只在最后一步创建。
 
-Worker 将页面填写的 PostgreSQL 连接和数据库选择保存在 `CONFIG` KV 命名空间，连接地址用 `ADMIN_TOKEN` 派生的密钥加密。绑定 D1 与否不影响存储位置，后续添加 D1 也不会覆盖已保存的选择。仅使用 D1 或部署时设置的 `DATABASE_URL` 时，可以不绑定 KV。账号、会话、监控数据及初始化状态仍保存在所选数据库中。
+Worker 将页面填写的 PostgreSQL 连接和数据库选择保存在 `CONFIG` KV 命名空间，连接地址用 `ADMIN_TOKEN` 派生的密钥加密。绑定 D1 与否不影响存储位置，后续添加 D1 也不会覆盖已保存的选择。`CONFIG` KV 在所有 Worker 部署中都是必需的；仅使用 D1 或部署时设置的 `DATABASE_URL` 也不能省略。账号、会话、监控数据及初始化状态仍保存在所选数据库中。
 
 KV 配置同步可能需要约一分钟或更久。页面会等到能够读取本次保存的配置后，再进入账号设置；同步期间保留输入，稍后点击“验证并继续”即可，无需重复填写。
 
@@ -72,8 +72,6 @@ Go 显式选过数据库后，数据目录里的 `database.json` 优先于 `POLA
 | `ADMIN_TOKEN` | 无默认值 | Secret；首次初始化凭据，也是管理 API 的 Bearer Token |
 | `DATABASE_TYPE` | 有 D1 时为 `d1`，否则为 `postgres`；也可显式设为 `postgres` | 普通变量；部署数据库类型，可省略，KV 保存的选择优先 |
 | `DATABASE_URL` | 无默认值 | Secret；PostgreSQL 连接 URL，形如 `postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full`；也可在初始化页面填写，已保存的连接优先 |
-| `CF_ACCOUNT_ID` | 可选 | 自动获取 Worker 绑定域名时使用的账号 ID |
-| `CF_API_TOKEN` | 可选 | Secret；自动获取 Worker 绑定域名时使用的 API Token |
 | `PBKDF2_ITERATIONS` | `3000`；允许 1–100000 | 密码哈希成本，作为字符串变量配置 |
 | `USAGE_PLAN` | `free`，可选 `paid` | 用量页比较的计划，不会替账号开通付费套餐 |
 | `AUTOMATIC_NOTIFICATIONS_DISABLED` | 未设置 | 精确等于字符串 `true` 时禁用自动通知，不停止采集 |
@@ -156,7 +154,7 @@ Agent 使用自己的 `config.json`、`install.json` 和 `POLARIS_AGENT_*` 环�
 
 ## English
 
-Deployment bindings, Worker environment variables, database-backed console settings and Agent configuration have different owners. Go has no Cloudflare bindings; its environment variables and flags are in the [Go backend guide](../backends/go/README.md#english). Console settings are shared, with backend-specific interval and timeout limits.
+Deployment bindings, Worker environment variables, console settings in the `CONFIG` KV namespace and Agent configuration have different owners. Go has no Cloudflare bindings; its environment variables and flags are in the [Go backend guide](../backends/go/README.md#english). Console settings are shared, with backend-specific interval and timeout limits.
 
 ### Go startup configuration
 
@@ -200,8 +198,6 @@ Manual deployment uses `backends/worker/cloudflare.config.ts`; database npm scri
 | `ADMIN_TOKEN` | No default | Secret for initial setup and management API Bearer authentication |
 | `DATABASE_TYPE` | `d1` with D1 bound, otherwise `postgres`; may also be set to `postgres` | Deployed database type; may be omitted, and the selection saved in KV takes precedence |
 | `DATABASE_URL` | No default | Secret PostgreSQL URL such as `postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full`; it can also be entered during setup, and the saved selection takes precedence |
-| `CF_ACCOUNT_ID` | Optional | Account ID for fetching domains bound to the Worker |
-| `CF_API_TOKEN` | Optional | Secret API Token for fetching domains bound to the Worker |
 | `PBKDF2_ITERATIONS` | `3000`; 1–100000 | Password hash cost, configured as a string |
 | `USAGE_PLAN` | `free`; also `paid` | Plan used for usage comparisons; does not enable a paid plan |
 | `AUTOMATIC_NOTIFICATIONS_DISABLED` | Unset | Exactly `true` disables automatic notifications, not collection |

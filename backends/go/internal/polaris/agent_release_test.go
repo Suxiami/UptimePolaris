@@ -35,13 +35,18 @@ func TestAgentReleaseContract(t *testing.T) {
 		calls++
 		status := 200
 		var body []byte
+		headers := make(http.Header)
 		if mode == "limited" {
 			status = 403
 		} else if mode == "missing" {
 			status = 404
-		} else if r.URL.Host == "api.github.com" {
-			body, _ = json.Marshal(Object{"tag_name": tag, "draft": false, "prerelease": false, "assets": []Object{{"name": "manifest.json", "browser_download_url": agentReleaseURL(tag, "manifest.json")}, {"name": file, "browser_download_url": agentReleaseURL(tag, file), "size": 7}}})
+		} else if r.URL.String() == "https://github.com/"+releaseRepository+"/releases/latest/download/manifest.json" {
+			status = http.StatusFound
+			headers.Set("Location", agentReleaseURL(tag, "manifest.json"))
 		} else {
+			if r.URL.String() != agentReleaseURL(tag, "manifest.json") {
+				t.Errorf("unexpected release request: %s", r.URL)
+			}
 			if mode == "bad" {
 				manifest["repository"] = "other/repo"
 			} else {
@@ -49,7 +54,7 @@ func TestAgentReleaseContract(t *testing.T) {
 			}
 			body, _ = json.Marshal(manifest)
 		}
-		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(body))), Header: make(http.Header), Request: r}, nil
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(body))), Header: headers, Request: r}, nil
 	})
 	if _, err := latestAgentRelease(); err == nil || err.Error() != "github_rate_limited" {
 		t.Fatalf("rate limit: %v", err)

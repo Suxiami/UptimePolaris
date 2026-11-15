@@ -332,8 +332,8 @@ export function GroupsPanel({
               <MonitorForm
                 monitor={editingMonitor}
                 defaults={overview.data?.defaults}
-                onSaved={async () => {
-                  setEditingMonitor(null);
+                onSaved={async (options) => {
+                  if (!options?.keepOpen) setEditingMonitor(null);
                   await refresh();
                 }}
                 onCancel={() => setEditingMonitor(null)}

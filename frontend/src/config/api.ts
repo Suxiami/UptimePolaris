@@ -5,6 +5,8 @@ import type { GlobalConfig, PublicConfig, UiConfig } from '@/types/config';
 
 export interface PublicConfigResponse extends UiConfig, GlobalConfig {
   presentation: PresentationView;
+  theme_head_code: string | null;
+  theme_content_html: string | null;
   success: true;
   status: 'ok';
   error?: string;

@@ -136,11 +136,6 @@ switch ($arch) {
 $detectedPlatform = "windows-$archKey"
 if ($Platform -and $Platform -ne $detectedPlatform) { Die "selected build $Platform does not match this host ($detectedPlatform)" }
 
-$url = "$Endpoint/api/public/agent/download/polaris-agent-windows-$archKey.exe"
-Say "  download    : $url"
-Say ""
-Say "-> downloading"
-
 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
 New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
 if ((Test-Path $dest) -or (Test-Path $cfg)) {
@@ -162,6 +157,36 @@ if ((Test-Path $dest) -or (Test-Path $cfg)) {
   }
 }
 
+$releaseRepository = 'XingLingQAQ/polaris-agent'
+$releaseBase = "https://github.com/$releaseRepository/releases"
+$manifestUrl = "$releaseBase/latest/download/manifest.json"
+Say "-> checking the latest stable release"
+try {
+  $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -TimeoutSec 15
+} catch {
+  Die "cannot read the latest Agent release: $($_.Exception.Message). Check GitHub access from this machine and that a stable release includes manifest.json."
+}
+$releaseVersion = [string]$manifest.version
+if ($manifest.repository -cne $releaseRepository -or $releaseVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or $manifest.tag -cne "v$releaseVersion") {
+  Die 'release manifest repository, version, or tag is invalid'
+}
+$entries = @($manifest.platforms | Where-Object { $_.key -ceq $detectedPlatform })
+if ($entries.Count -ne 1) { Die "release manifest has no unique build for $detectedPlatform" }
+$entry = $entries[0]
+$releaseFile = "polaris-agent-$releaseVersion-$detectedPlatform.exe"
+if ($entry.file -cne $releaseFile -or $entry.version -cne $releaseVersion -or $entry.sha256 -isnot [string] -or $entry.sha256 -notmatch '^[a-fA-F0-9]{64}$') {
+  Die "release manifest has invalid metadata or SHA-256 for $detectedPlatform"
+}
+if (($entry.size -isnot [int] -and $entry.size -isnot [long] -and $entry.size -isnot [double]) -or $entry.size -le 0 -or $entry.size -gt 64MB -or [Math]::Floor($entry.size) -ne $entry.size) {
+  Die "release manifest has no valid size for $detectedPlatform"
+}
+$expectedSha = $entry.sha256
+$expectedSize = [long]$entry.size
+$url = "$releaseBase/download/$($manifest.tag)/$releaseFile"
+Say "  version     : $releaseVersion"
+Say "  download    : $url"
+Say "-> downloading"
+
 $stage = Join-Path $destDir ('.download-' + [Guid]::NewGuid() + '.exe')
 try {
   Invoke-WebRequest -Uri $url -OutFile $stage -UseBasicParsing
@@ -170,48 +195,28 @@ try {
   Die "download failed: $($_.Exception.Message)
 
 The Agent GitHub repository needs a published stable release with an asset for windows/$archKey.
-Also check GitHub network access and API rate limits."
+Check GitHub access from this machine."
 }
 
-# A PE binary starts with 'MZ'. The download route once answered a missing
-# binary with the site's HTML, and a web page saved as .exe fails obscurely.
-# PE 二进制文件以 'MZ' 开头。下载路由曾在文件缺失时返回网站 HTML，
-# 把网页保存为 .exe 会导致难以理解的失败。
 $magic = [System.IO.File]::ReadAllBytes($stage)[0..1]
 if ($magic[0] -ne 0x4D -or $magic[1] -ne 0x5A) {
   Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
   Die "the downloaded file is not a Windows executable. Report this."
 }
 
-# 'MZ' only says the file looks like a Windows program. Compare the release
-# manifest's SHA-256 as well: a replaced binary keeps its first two bytes.
-# 'MZ' 只能说明文件看起来像 Windows 程序；被替换的二进制文件也可能保留这两个字节，
-# 因此还要比较发布清单中的 SHA-256。
-#
-$expectedSha = ''
-foreach ($manifestUrl in @("$Endpoint/api/public/agent/manifest")) {
-  try {
-    $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -TimeoutSec 15
-  } catch { continue }
-  $entry = @($manifest.platforms) | Where-Object { $_.key -eq "windows-$archKey" } | Select-Object -First 1
-  if ($entry -and $entry.sha256 -match '^[a-fA-F0-9]{64}$') { $expectedSha = $entry.sha256; break }
-}
-
-if (-not $expectedSha) {
+if ((Get-Item -LiteralPath $stage).Length -ne $expectedSize) {
   Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
-  Die "release manifest has no valid SHA-256 for windows-$archKey"
-} else {
-  $actualSha = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
-  if ($actualSha -ne $expectedSha) {
-    Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
-    Die "sha256 mismatch for windows-$archKey
+  Die 'downloaded binary size does not match the release manifest'
+}
+$actualSha = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
+if ($actualSha -ne $expectedSha) {
+  Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+  Die "sha256 mismatch for $detectedPlatform
   expected: $expectedSha
   actual:   $actualSha
-The downloaded file is not the build this deployment's manifest describes.
-That is a replaced or corrupted binary; refusing to install it."
-  }
-  Say "  verified    : sha256 $actualSha"
+The downloaded file does not match the release manifest; refusing to install it."
 }
+Say "  verified    : sha256 $actualSha"
 
 # The token goes in a config file rather than the task's arguments: a task
 # argument is readable by any user through Get-ScheduledTask / schtasks, and

@@ -595,14 +595,14 @@ console.log('\npush deadlines run independently of the reporting interval');
 {
   await req('/__clock?at=2026-10-26T06%3A00%3A00Z');
   await seedMonitor('hourly-push', { type: 'push', target: '', push_token: 'hourly-push-secret', interval_sec: 3600 });
-  await req('/api/public/push/hourly-push-secret', { method: 'POST' });
+  await req('/api/public/push/hourly-push', { method: 'POST', headers: { authorization: 'Bearer hourly-push-secret' } });
   await plan('ok');
   await req('/__tick');
   check('a received push starts UP', (await liveEntry('hourly-push')).st === 1);
   await req('/__clock?at=2026-10-26T07%3A01%3A00Z');
   await req('/__tick');
   check('the first minute past the deadline is DOWN', (await liveEntry('hourly-push')).st === 0, await liveEntry('hourly-push'));
-  await req('/api/public/push/hourly-push-secret', { method: 'POST' });
+  await req('/api/public/push/hourly-push', { method: 'POST', headers: { authorization: 'Bearer hourly-push-secret' } });
   await req('/__clock?at=2026-10-26T07%3A02%3A00Z');
   await req('/__tick');
   check('a new push restores UP on the next minute', (await liveEntry('hourly-push')).st === 1, await liveEntry('hourly-push'));

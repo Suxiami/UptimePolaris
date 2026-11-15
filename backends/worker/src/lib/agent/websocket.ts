@@ -24,11 +24,6 @@ export async function handleAgentWebSocket(
 
   const monitor = await withDBScope(c.env, (env) => findAgentByToken(env, token));
   if (!monitor) {
-    // Same wording as /api/public/push/:token: the failure must not be a
-    // lookup oracle that distinguishes "no such token" from "not an agent
-    // token".
-    // 与 /api/public/push/:token 使用相同措辞，避免通过失败响应区分
-    // “令牌不存在”和“令牌不属于 Agent”。
     return c.json({ error: 'invalid token' }, 401);
   }
 

@@ -26,7 +26,7 @@ export interface Monitor {
   check_dns: number;
   /** Type-specific JSON; DNS add-on options live under the `dns` key. / 类型专属 JSON；DNS 附加选项位于 `dns` 键下。 */
   options_json: string;
-  /** For type='push' only: the secret in the public push URL. NULL otherwise. / 仅用于 type='push'：公共 Push URL 中的密钥；其他类型为 NULL。 */
+  /** Push bearer credential; never included in the report URL. / Push Bearer 密钥，不写入上报地址。 */
   push_token: string | null;
   /** Selected machine for Agent monitoring or Agent-sourced probes. / Agent 监控或 Agent 来源探测所关联的机器。 */
   agent_id: string | null;
@@ -353,8 +353,6 @@ export interface Env {
   /** Installed theme assets in R2; optional when serving only the built-in UI. / R2 中已安装的主题资源；仅提供内置界面时可选。 */
   THEMES?: R2Bucket;
   ANALYTICS_SQL?: AnalyticsSQLBinding;
-  CF_ACCOUNT_ID?: string;
-  CF_API_TOKEN?: string;
   /**
    * 部署数据库类型；请求作用域中的值可能来自已保存的初始化选择。
    * Deployment database type; request-scoped values may come from the saved setup selection.

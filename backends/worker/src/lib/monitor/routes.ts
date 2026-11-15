@@ -1,4 +1,6 @@
 import { udpPacketOptions } from '../../../../../shared/udp-probe';
+import { isPushCredentials, type PushCredentials } from '../../../../../shared/push-monitor';
+import { dnsExpectedError } from '../../../../../shared/dns-expected';
 import { Hono } from 'hono';
 import { parseOptions, type Env, type Monitor, type MonitorType, type ProbeSource } from '../../types';
 import { findAgent } from '../agent/registry';
@@ -19,7 +21,7 @@ import { runMonitorCheck } from '../jobs/tick';
 import { invalidateMonitorDetail, visibilityRevisionWrite } from '../public/cache';
 import { readAll } from '../settings/store';
 import { clampInteger } from '../util';
-import { invalidateConfig, lastD1Meta, loadAllMonitors, logMeta } from './store';
+import { invalidateConfig, invalidateLive, lastD1Meta, loadAllMonitors, logMeta } from './store';
 import { deleteMonitor } from './writes';
 
 // Mounted behind the management gate in api.ts.
@@ -83,6 +85,11 @@ monitorRoutes.get('/api/monitors', async (c) => {
   });
 });
 
+monitorRoutes.post('/api/monitors/push-credentials', (c) => {
+  c.header('cache-control', 'private, no-store');
+  return c.json({ id: crypto.randomUUID(), push_token: randomToken() } satisfies PushCredentials);
+});
+
 monitorRoutes.post('/api/monitors', async (c) => {
   const body = await readObjectBody<MonitorBody>(c);
   if (!body) return c.json({ error: 'invalid_request' }, 400);
@@ -94,7 +101,7 @@ monitorRoutes.post('/api/monitors', async (c) => {
   if (badRef) return c.json({ error: badRef }, 400);
 
   const now = Math.floor(Date.now() / 1000);
-  const id = crypto.randomUUID();
+  const id = body.push_credentials?.id ?? crypto.randomUUID();
 
   const target = normalizeTarget(body.type!, body.target ?? '');
 
@@ -102,7 +109,7 @@ monitorRoutes.post('/api/monitors', async (c) => {
   const sourceError = await validateProbeSource(c.env, body.type!, options, { ssl: Boolean(body.check_ssl), domain: Boolean(body.check_domain), dns: Boolean(body.check_dns) });
   if (sourceError) return c.json({ error: sourceError }, 400);
 
-  const pushToken = body.type === 'push' ? randomToken() : null;
+  const pushToken = body.type === 'push' ? (body.push_credentials?.push_token ?? randomToken()) : null;
 
   const agentId = bindingId(body.type!, body.agent_id, options);
   if (body.type === 'agent' && (!agentId || !await findAgent(c.env, agentId))) return c.json({ error: 'agent_required' }, 400);
@@ -112,7 +119,7 @@ monitorRoutes.post('/api/monitors', async (c) => {
   const defaults = (await readAll(c.env)).values;
   const defaultIntervalSec = defaults['monitor.defaultIntervalSec'] as number;
   const defaultTimeoutMs = defaults['monitor.defaultTimeoutMs'] as number;
-  await db.commit([{ sql: monitorSQL[db.type].insert, params: [
+  const [inserted] = await db.commit([{ sql: monitorSQL[db.type].insert + ' ON CONFLICT (id) DO NOTHING', params: [
     id,
 
     nonEmptyString(body.name)!,
@@ -136,6 +143,7 @@ monitorRoutes.post('/api/monitors', async (c) => {
     now,
     now,
   ] }, visibilityRevisionWrite(now, db.type === 'postgres')]);
+  if (!inserted) return c.json({ error: 'conflict' }, 409);
 
   if (body.tag_ids !== undefined) {
     await setMonitorTags(c.env, id, body.tag_ids);
@@ -166,6 +174,7 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
 
   const err = validateUpdate(stored, body);
   if (err) return c.json({ error: err }, 400);
+  if (body.push_credentials !== undefined && body.push_credentials.id !== id) return c.json({ error: 'invalid_request' }, 400);
 
   const badRef = await checkRefs(c.env, body);
   if (badRef) return c.json({ error: badRef }, 400);
@@ -180,7 +189,7 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
 
   const options = normalizeOptions(
     type,
-    body.options_json === undefined ? stored.options_json : body.options_json,
+    body.options_json === undefined ? (type === 'push' && stored.type !== 'push' ? '{}' : stored.options_json) : body.options_json,
   ).json ?? '{}';
   let oldSource: { type?: string; agent_id?: string } | undefined;
   try { oldSource = (JSON.parse(stored.options_json) as { check_source?: { type?: string; agent_id?: string } }).check_source; } catch { oldSource = undefined; }
@@ -193,7 +202,7 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
   if (sourceError) return c.json({ error: sourceError }, 400);
 
   const pushToken =
-    type === 'push' ? (stored.push_token ?? randomToken()) : stored.push_token;
+    type === 'push' ? (stored.type === 'push' && stored.push_token || body.push_credentials?.push_token || randomToken()) : null;
 
   const agentId = bindingId(type, body.agent_id === undefined ? stored.agent_id : body.agent_id, options);
   if (type === 'agent' && (!agentId || !await findAgent(c.env, agentId))) return c.json({ error: 'agent_required' }, 400);
@@ -205,7 +214,7 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
   };
 
   const updateDb = getDB(c.env);
-  const updateResults = await updateDb.commit([{ sql: monitorSQL[updateDb.type].update, params: [
+  const updateWrites = [{ sql: monitorSQL[updateDb.type].update, params: [
 
     nonEmptyString(body.name),
     type,
@@ -228,7 +237,14 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
     body.active === undefined ? null : body.active ? 1 : 0,
     now,
     id,
-  ] }, visibilityRevisionWrite(now, updateDb.type === 'postgres')]);
+  ] }, visibilityRevisionWrite(now, updateDb.type === 'postgres')];
+  if (type !== stored.type && (type === 'push' || stored.type === 'push')) {
+    updateWrites.push(
+      { sql: monitorSQL[updateDb.type].deletePushHeartbeats, params: [id] },
+      { sql: monitorSQL[updateDb.type].removeLiveEntry, params: [updateDb.type === 'postgres' ? id : '$.' + JSON.stringify(id)] },
+    );
+  }
+  const updateResults = await updateDb.commit(updateWrites);
 
   if (updateResults[0] === 0) return c.json({ error: 'not_found' }, 404);
 
@@ -242,6 +258,7 @@ monitorRoutes.put('/api/monitors/:id', async (c) => {
   }
 
   invalidateConfig();
+  invalidateLive();
 
   try {
     const cacheDb = getDB(c.env);
@@ -329,6 +346,8 @@ monitorRoutes.post('/api/monitors/check', async (c) => {
   const err = validate(body);
   if (err) return c.json({ error: err }, 400);
 
+  if (body.type === 'push') return c.json({ error: 'push_not_probeable' }, 409);
+
   const testOptions = normalizeOptions(body.type!, body.options_json).json ?? '{}';
   if (requiresAgentProbe(body.type!)) {
     const sourceError = await validateProbeSource(c.env, body.type!, testOptions);
@@ -390,6 +409,7 @@ interface MonitorBody extends Partial<Omit<Monitor, 'group_id' | 'is_public'>> {
   is_public?: boolean;
   group_id?: string | null;
   tag_ids?: string[];
+  push_credentials?: PushCredentials;
 }
 
 function bindingId(type: MonitorType, selected: unknown, json: string): string | null {
@@ -427,7 +447,7 @@ async function checkRefs(env: Env, body: MonitorBody): Promise<string | null> {
 }
 
 function randomToken(): string {
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -558,7 +578,7 @@ async function validateProbeSource(env: Env, type: MonitorType, json: string, ad
   return null;
 }
 
-function normalizeOptions(type: MonitorType, input: unknown): OptionsResult {
+function normalizeOptions(type: MonitorType, input: unknown, checkDns = false): OptionsResult {
 
   let parsed: unknown = input === undefined || input === null || input === '' ? {} : input;
 
@@ -576,6 +596,7 @@ function normalizeOptions(type: MonitorType, input: unknown): OptionsResult {
   }
 
   const opts = parsed as Record<string, unknown>;
+  if (type === 'push' && Object.keys(opts).length > 0) return { error: 'options_json_invalid' };
   if (type === 'udp') {
     if (Object.keys(opts).some(key => !['check_source', 'send', 'expect', 'encoding'].includes(key))) return { error: 'udp_options_invalid' };
     if (!udpPacketOptions(opts)) return { error: 'udp_options_invalid' };
@@ -612,6 +633,10 @@ function normalizeOptions(type: MonitorType, input: unknown): OptionsResult {
         return { error: 'dns_record_type_required' };
       }
     }
+    if (checkDns) {
+      const error = dnsExpectedError(typeof rt === 'string' ? rt : 'A', dns.expected);
+      if (error) return { error };
+    }
   }
 
   return { json: JSON.stringify(parsed) };
@@ -622,6 +647,7 @@ function validate(b: MonitorBody): string | null {
   const name = nonEmptyString(b.name);
   if (name === null) return 'name_required';
   if (!b.type || !TYPES.includes(b.type)) return 'type_invalid';
+  if (b.push_credentials !== undefined && (b.type !== 'push' || !isPushCredentials(b.push_credentials))) return 'invalid_request';
   if (b.interval_sec !== undefined && (!Number.isInteger(b.interval_sec) || b.interval_sec < 60 || b.interval_sec > 86400)) return 'interval_sec_invalid';
   if (b.timeout_ms !== undefined && (!Number.isInteger(b.timeout_ms) || b.timeout_ms < 1000 || b.timeout_ms > 60000)) return 'timeout_ms_invalid';
 
@@ -633,7 +659,7 @@ function validate(b: MonitorBody): string | null {
   const bad = validateTarget(b.type, b.target ?? '');
   if (bad) return bad;
 
-  const opts = normalizeOptions(b.type, b.options_json);
+  const opts = normalizeOptions(b.type, b.options_json, Boolean(addonFlag(b.type, b.check_dns)));
   if (opts.error) return opts.error;
 
   return validateAddonHost(b, b.type, b.target ?? '');
@@ -655,6 +681,7 @@ function validateUpdate(
   if (transport) return transport;
 
   const type = b.type ?? stored.type;
+  if (b.push_credentials !== undefined && (type !== 'push' || stored.type === 'push' || !isPushCredentials(b.push_credentials))) return 'invalid_request';
   const target = b.target ?? stored.target;
 
   if (type !== 'push' && type !== 'agent' && b.target !== undefined && nonEmptyString(b.target) === null) {
@@ -666,7 +693,8 @@ function validateUpdate(
 
   const opts = normalizeOptions(
     type,
-    b.options_json === undefined ? stored.options_json : b.options_json,
+    b.options_json === undefined ? (type === 'push' && stored.type !== 'push' ? '{}' : stored.options_json) : b.options_json,
+    Boolean(addonFlag(type, b.check_dns ?? stored.check_dns)),
   );
   if (opts.error) return opts.error;
 

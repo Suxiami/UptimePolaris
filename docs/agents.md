@@ -4,7 +4,7 @@
 
 `polaris-agent` 负责采集主机数据，`pa` 是它的短命令。两者操作同一套程序、配置和服务，`pa` 不会另外启动一个实例。
 
-安装和更新都使用最新稳定版，并校验下载文件的完整性。GitHub 访问不了或被 API 限流时，恢复网络后再重试。
+安装和更新都使用最新稳定版，并校验下载文件的完整性。安装脚本在目标机器上查询 GitHub Release、识别系统和架构，再下载对应版本；站点无需先获取版本清单。
 
 ## 目录
 
@@ -48,9 +48,9 @@ Windows PowerShell 的默认形式：
 & ([scriptblock]::Create((irm 'https://status.example.com/install.ps1' -ErrorAction Stop))) 'TOKEN' -mode 'system'
 ```
 
-把站点和 Token 换成控制台给出的实际值。安装命令先完整下载脚本，再执行；Token 不会放进脚本下载 URL。Windows 引导脚本会暂存执行脚本，结束后清理临时文件并恢复凭据环境变量。
+把站点和 Token 换成控制台给出的实际值。安装和重新安装都先完整下载站点脚本，再由脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。Windows 引导脚本会暂存执行脚本，结束后清理临时文件并恢复凭据环境变量。
 
-安装命令含机器凭据，会留在终端历史或复制记录里。不要把它发到公共讨论或截图。每台机器用独立 Token。下载失败时，先确认所选平台有没有可用版本，见[部署指南](deployment.md#agent-下载)。
+安装命令含机器凭据，会留在终端历史或复制记录里。不要把它发到公共讨论或截图。每台机器用独立 Token。下载失败时，检查目标机器的 GitHub 连接和对应平台的发布文件，见[部署指南](deployment.md#agent-下载)。
 
 ## 安装模式与平台
 
@@ -253,6 +253,8 @@ Agent 启动时通过真实网卡出口发现公网 IP，再按这个 IP 查询�
 1. Create a machine in the Agent console, select the platform, mode and intervals, and copy the generated command from the production origin.
 2. Run it with the permissions required by that mode. Each machine has its own token; keep installation commands and configuration private.
 3. Run `pa status` and confirm the first report in the console. Create a separate Agent-type monitor if online status and resource alerts are needed.
+
+For installation and reinstallation, the site serves the script and the target machine detects its OS and architecture, reads the latest stable GitHub Release manifest, then downloads the matching version and verifies its size and SHA-256. No backend release lookup is required. The machine token is not sent to GitHub.
 
 System mode is available on Linux, macOS and Windows. User mode depends on the platform's service manager; POSIX user services currently require Linux `systemd --user`. Manual mode prepares files for foreground operation. Linux Docker mode uses Compose; its default system view is the container view unless host resources are explicitly mounted and permitted.
 

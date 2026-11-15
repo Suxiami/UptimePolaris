@@ -1,7 +1,4 @@
-// 使用受控 GitHub 响应验证版本清单、下载与缓存。
-// Check release manifests, downloads, and caching with controlled GitHub responses.
-
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { agentCapabilities, agentReleaseManifest, downloadAgentArtifact } from '../../backends/worker/src/lib/agent/download';
 import { AGENT_RELEASE_REPOSITORY } from '../../backends/worker/src/lib/agent/release';
 
@@ -9,20 +6,38 @@ const tag = 'v0.2.0';
 const version = '0.2.0';
 const file = `polaris-agent-${version}-linux-x86_64`;
 const base = `https://github.com/${AGENT_RELEASE_REPOSITORY}/releases/download/${tag}/`;
+const latest = `https://github.com/${AGENT_RELEASE_REPOSITORY}/releases/latest/download/manifest.json`;
+const asset = 'https://release-assets.githubusercontent.com/fixture/manifest.json';
 const entry = { key: 'linux-x86_64', file, version, size: 7, sha256: 'a'.repeat(64) };
 const manifest = { repository: AGENT_RELEASE_REPOSITORY, tag, version, platforms: [entry] };
 let mode = 'limited';
-let calls = 0;
-globalThis.fetch = (async (input: RequestInfo | URL) => {
-  calls++;
+const calls: string[] = [];
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
-  let response: Response;
-  if (mode === 'limited') response = new Response('', { status: 403 });
-  else if (mode === 'missing') response = new Response('', { status: 404 });
-  else if (url.includes('api.github.com')) response = Response.json({ tag_name: tag, draft: mode === 'draft_missing' ? undefined : false, prerelease: false, assets: [{ name: 'manifest.json', browser_download_url: base + 'manifest.json' }, { name: file, browser_download_url: base + file, size: 7 }] });
-  else response = Response.json(mode === 'bad' ? { ...manifest, repository: 'wrong/repo' } : mode === 'bad_size' ? { ...manifest, platforms: [{ ...entry, size: 7.5 }] } : manifest);
-  Object.defineProperty(response, 'url', { value: url });
-  return response;
+  calls.push(url);
+  assert.equal(init?.redirect, 'manual');
+  assert.notEqual(new URL(url).hostname, 'api.github.com');
+  if (mode === 'limited') return new Response('', { status: 403 });
+  if (mode === 'missing') return new Response('', { status: 404 });
+  if (url === latest) {
+    const location = mode === 'redirect_repo' ? 'https://github.com/wrong/repo/releases/download/v0.2.0/manifest.json'
+      : mode === 'redirect_http' ? base.replace('https:', 'http:') + 'manifest.json'
+      : mode === 'redirect_credentials' ? base.replace('https://', 'https://credential@') + 'manifest.json'
+      : mode === 'redirect_cdn' ? asset
+      : mode === 'prerelease' ? base.replace(tag, tag + '-rc.1') + 'manifest.json'
+      : base + 'manifest.json';
+    return new Response(null, { status: 302, headers: mode === 'redirect_missing' ? {} : { location } });
+  }
+  if (url === base + 'manifest.json') return new Response(null, { status: 302, headers: { location: asset } });
+  assert.equal(url, asset);
+  if (mode === 'malformed') return new Response('{');
+  if (mode === 'large') return new Response('x'.repeat(65537));
+  return Response.json(mode === 'bad' ? { ...manifest, repository: 'wrong/repo' }
+    : mode === 'tag_mismatch' ? { ...manifest, tag: 'v0.3.0', version: '0.3.0' }
+    : mode === 'bad_size' ? { ...manifest, platforms: [{ ...entry, size: 7.5 }] }
+    : mode === 'bad_file' ? { ...manifest, platforms: [{ ...entry, file: '../other' }] }
+    : mode === 'duplicate' ? { ...manifest, platforms: [entry, entry] }
+    : manifest);
 }) as typeof fetch;
 function context(file = '') {
   return {
@@ -31,22 +46,35 @@ function context(file = '') {
     body: (body: BodyInit | null) => new Response(body),
   };
 }
-let result = await agentCapabilities(context() as never) as { status: number; body: { error: string } };
-assert.equal(result.status, 502); assert.equal(result.body.error, 'github_rate_limited');
-mode = 'missing'; result = await downloadAgentArtifact(context('polaris-agent-linux-x86_64') as never) as typeof result;
-assert.equal(result.status, 501); assert.equal(result.body.error, 'release_not_found');
-mode = 'draft_missing'; result = await agentCapabilities(context() as never) as typeof result;
-assert.equal(result.status, 502); assert.equal(result.body.error, 'invalid_release');
-mode = 'bad'; result = await agentCapabilities(context() as never) as typeof result;
-assert.equal(result.status, 502); assert.equal(result.body.error, 'invalid_release_manifest');
-mode = 'bad_size'; result = await agentCapabilities(context() as never) as typeof result;
-assert.equal(result.status, 502); assert.equal(result.body.error, 'invalid_release_manifest');
-mode = 'good'; const good = await agentReleaseManifest(context() as never) as { body: typeof manifest };
+async function expectFailure(scenario: string, error: string, status = 502) {
+  mode = scenario;
+  const result = await agentCapabilities(context() as never) as { status: number; body: { error: string } };
+  assert.equal(result.status, status, scenario);
+  assert.equal(result.body.error, error, scenario);
+}
+await expectFailure('limited', 'github_rate_limited');
+await expectFailure('missing', 'release_not_found', 501);
+for (const scenario of ['redirect_repo', 'redirect_http', 'redirect_credentials', 'redirect_cdn', 'redirect_missing', 'prerelease']) {
+  await expectFailure(scenario, 'invalid_release_redirect');
+}
+for (const scenario of ['bad', 'tag_mismatch', 'bad_size', 'bad_file', 'duplicate', 'malformed']) {
+  await expectFailure(scenario, 'invalid_release_manifest');
+}
+await expectFailure('large', 'release_response_too_large');
+mode = 'good';
+const before = calls.length;
+const [good, concurrent] = await Promise.all([
+  agentReleaseManifest(context() as never), agentCapabilities(context() as never),
+]) as Array<{ body: typeof manifest }>;
 assert.deepEqual(good.body, manifest);
-const before = calls;
+assert.deepEqual(concurrent.body, manifest);
+assert.deepEqual(calls.slice(before), [latest, base + 'manifest.json', asset]);
+const beforeDownload = calls.length;
 const redirect = await downloadAgentArtifact(context('polaris-agent-linux-x86_64') as never) as Response;
-assert.equal(redirect.status, 302); assert.equal(redirect.headers.get('location'), base + file); assert.equal(calls, before);
+assert.equal(redirect.status, 302);
+assert.equal(redirect.headers.get('location'), base + file);
+assert.equal(calls.length, beforeDownload);
 assert.equal((await downloadAgentArtifact(context('polaris-agent-windows-aarch64.exe') as never) as { status: number }).status, 422);
 assert.equal((await downloadAgentArtifact(context('polaris-agent-darwin-aarch64') as never) as { status: number }).status, 501);
 assert.equal((await downloadAgentArtifact(context('polaris-agent-0.1.0-linux-x86_64') as never) as { status: number }).status, 501);
-console.log('Agent GitHub release contract passed');
+console.log('PASS Agent release discovery without the GitHub API, redirect/manifest validation, downloads, and shared cache');

@@ -78,7 +78,7 @@ api.use('/api/*', async (c, next) => {
 api.use('/api/*', async (c, next) => {
   await next();
   const path = new URL(c.req.url).pathname;
-  const changesPublicData = c.req.method !== 'GET' && (
+  const changesPublicData = c.req.method !== 'GET' && path !== '/api/monitors/push-credentials' && (
     path === '/api/monitors' || path.startsWith('/api/monitors/') ||
     path === '/api/groups' || path.startsWith('/api/groups/') ||
     path === '/api/tags' || path.startsWith('/api/tags/') ||

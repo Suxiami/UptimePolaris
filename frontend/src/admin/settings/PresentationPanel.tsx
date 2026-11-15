@@ -2,7 +2,6 @@ import { MotionDisclosure } from '@/components/ui/MotionDisclosure';
 import { useEffect, useState } from 'react';
 import { Button, Input, Skeleton, Switch } from '@heroui/react';
 import {
-  CloudDownload,
   Globe,
   Monitor,
   Plus,
@@ -11,7 +10,6 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useApiErrorMessage } from '@/api/useApiErrorMessage';
-import { requestJson } from '@/api/client';
 import {
   normalizeDomain,
   type DomainPage,
@@ -28,9 +26,6 @@ export function PresentationPanel() {
   const data = usePresentation();
   const [enabled, setEnabled] = useState<boolean | null>(null),
     [domains, setDomains] = useState<DomainDraft[]>([]);
-  const [suggestions, setSuggestions] = useState<string[]>([]),
-    [domainStatus, setDomainStatus] = useState(''),
-    [reading, setReading] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const save = useAutoSave<
     Partial<{ agentEnabled: boolean; domains: DomainPage[] }>
@@ -72,23 +67,6 @@ export function PresentationPanel() {
     setInvalid(false);
     save.schedule({ domains: normalized });
   }
-  async function readDomains() {
-    setReading(true);
-    try {
-      const result = await requestJson<{
-        available: boolean;
-        domains: string[];
-      }>('/api/admin/presentation/domains');
-      setSuggestions(result.domains);
-      setDomainStatus(
-        t(result.available ? 'domainsLoaded' : 'domainsUnavailable'),
-      );
-    } catch {
-      setDomainStatus(t('domainsUnavailable'));
-    } finally {
-      setReading(false);
-    }
-  }
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
@@ -116,31 +94,13 @@ export function PresentationPanel() {
           </p>
         </div>
       </div>
-      <MotionDisclosure open={enabled} className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--polaris-line-soft)] pt-5">
-          <p className="max-w-prose text-small leading-6 text-default-500">
-            {t('domainsHint')}
-          </p>
-          <Button
-            size="sm"
-            variant="flat"
-            startContent={<CloudDownload size={15} />}
-            isLoading={reading}
-            onPress={() => void readDomains()}
-          >
-            {t('loadDomains')}
-          </Button>
-        </div>
-        {domainStatus && (
-          <p role="status" className="text-small text-default-500">
-            {domainStatus}
-          </p>
-        )}
-        <datalist id="presentation-domains">
-          {suggestions.map((domain) => (
-            <option key={domain} value={domain} />
-          ))}
-        </datalist>
+      <MotionDisclosure
+        open={enabled}
+        className="flex flex-col gap-5 border-t border-[var(--polaris-line-soft)] pt-5"
+      >
+        <p className="max-w-prose text-small leading-6 text-default-500">
+          {t('domainsHint')}
+        </p>
         {(['monitor', 'agent'] as PageKind[]).map((kind) => {
           const Icon = kind === 'monitor' ? Monitor : Server;
           return (
@@ -162,7 +122,6 @@ export function PresentationPanel() {
                           variant="bordered"
                           aria-label={t('hostname')}
                           placeholder="status.example.com"
-                          list="presentation-domains"
                           startContent={
                             <Globe size={15} className="text-default-400" />
                           }

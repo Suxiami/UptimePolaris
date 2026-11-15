@@ -3,6 +3,7 @@ export interface ThemeOption {
   type: 'string' | 'textarea' | 'color' | 'number' | 'boolean' | 'select' | 'monitor' | 'agent';
   default?: string | number | boolean;
   choices?: string[];
+  choiceLabels?: Record<string, string>;
   description?: string; min?: number; max?: number; step?: number;
 }
 export interface ThemeDefinition {

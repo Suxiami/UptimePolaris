@@ -442,7 +442,7 @@ html.polaris-console.dark * {
 .polaris-card {
   background: var(--polaris-card);
   border: 1px solid var(--polaris-line);
-  border-radius: 12px;
+  border-radius: var(--polaris-page-radius, 12px);
   box-shadow: var(--polaris-shadow-card);
 }
 
@@ -469,7 +469,7 @@ html.polaris-console.dark * {
 .polaris-well {
   background: var(--polaris-well);
   border: 1px solid var(--polaris-line-soft);
-  border-radius: 10px;
+  border-radius: var(--polaris-page-radius, 10px);
 }
 
 .polaris-divide > * + * {

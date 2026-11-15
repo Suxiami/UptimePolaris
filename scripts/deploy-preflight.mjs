@@ -33,7 +33,10 @@ export function validateConfigBindings(config) {
   const all = (name) => sections.filter((section) => section.name === name).map((section) => section.values);
   const errors = [];
   const vars = first('vars');
-  const backend = vars.has('DATABASE_TYPE') ? vars.get('DATABASE_TYPE') : 'd1';
+  // 未声明 DATABASE_TYPE 时按绑定推断：有 DB 为 d1，否则为 postgres。
+  // Without an explicit DATABASE_TYPE, infer from the binding: d1 with DB, postgres otherwise.
+  const declaredDb = all('d1_databases').some((entry) => entry.get('binding') === 'DB');
+  const backend = vars.has('DATABASE_TYPE') ? vars.get('DATABASE_TYPE') : declaredDb ? 'd1' : 'postgres';
   const root = first('');
   const assets = first('assets');
   if (!root.get('name')) errors.push('backends/worker/wrangler.toml must provide a Worker name');

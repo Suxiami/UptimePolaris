@@ -38,6 +38,11 @@ assert.equal(config.analytics_engine_datasets, undefined);
 assert.equal(config.kv_namespaces, undefined);
 assert.equal(config.durable_objects, undefined);
 assert.equal(config.migrations, undefined);
+// 旧版初始化配置的 Durable Object 类已删除；三份配置都要保留 tombstone，否则线上部署报 10064。
+// The old setup-configuration Durable Object class is gone; all three configs keep the tombstone, or deploys fail with 10064.
+assert.deepEqual(config.exports, { SetupConfiguration: { type: 'durable-object', state: 'deleted' } });
+assert.match(toml, /\[exports\.SetupConfiguration\][\s\S]*?state = "deleted"/);
+assert.match(readFileSync(join(root, 'backends/worker/cloudflare.config.ts'), 'utf8'), /SetupConfiguration:\s*workerExports\.durableObject\(\{ state: "deleted" \}\)/);
 assert.equal(readFileSync(join(root, '.dev.vars.example'), 'utf8').trim(), 'ADMIN_TOKEN=');
 
 for (const args of [['--config', 'custom.toml'], ['--config=custom.toml'], ['-c', 'custom.toml'], ['-c=custom.toml'], ['-ccustom.toml']]) {

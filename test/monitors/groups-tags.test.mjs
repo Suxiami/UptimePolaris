@@ -41,7 +41,7 @@ async function harness() {
     ],
   });
 
-  const mf = new Miniflare({
+  const mf = new Miniflare({ kvNamespaces: { CONFIG: 'groups-tags-config' },
     modules: true,
     script: built.outputFiles[0].text,
     compatibilityDate: '2025-01-01',

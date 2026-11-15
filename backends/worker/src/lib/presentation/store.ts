@@ -1,5 +1,4 @@
 import {
-  DEFAULT_PAGE_VIEW,
   defaultPresentation,
   parsePresentation,
   type PageKind,
@@ -8,6 +7,7 @@ import {
   type PresentationConfig,
   type PresentationState,
 } from '../../../../../shared/presentation';
+import { resolveBuiltinPageView } from '../../../../../shared/builtin-theme';
 import type { Env } from '../../types';
 import { getDB } from '../db/factory';
 import { visibilityRevisionWrite } from '../public/cache';
@@ -81,11 +81,7 @@ export async function resolvePage(
   const kind = preview ?? domain?.page ?? 'monitor';
   return {
     kind,
-    page: {
-      ...DEFAULT_PAGE_VIEW,
-      layout: kind === 'agent' ? 'cards' : 'list',
-      ...config.pages[kind],
-    },
+    page: resolveBuiltinPageView(kind, config.pages[kind]),
     enabled: !!preview || kind !== 'agent' || config.agentEnabled,
     configured: !!preview || !domains.length || !!domain,
     config,

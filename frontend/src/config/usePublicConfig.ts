@@ -1,6 +1,7 @@
 import { ApiError } from '@/api/errors';
 import { fetchPublicConfig, publicConfigKey } from './api';
-import { useCallback } from 'react';
+import { applyPreviewDraft, usePreviewDraft } from './preview-draft';
+import { useCallback, useMemo } from 'react';
 import useSWR, { useSWRConfig, type SWRConfiguration } from 'swr';
 
 export function usePublicConfigResource(key: string | null, options?: SWRConfiguration) {
@@ -13,6 +14,8 @@ export function usePublicConfigResource(key: string | null, options?: SWRConfigu
     dedupingInterval: 3000,
     ...options,
   });
+  const draft = usePreviewDraft();
+  const data = useMemo(() => resource.data && applyPreviewDraft(resource.data, draft), [resource.data, draft]);
   const revoked = resource.error instanceof ApiError && [401, 403, 404].includes(resource.error.status);
   const refresh = useCallback(async () => {
     const data = await resource.mutate();
@@ -20,7 +23,7 @@ export function usePublicConfigResource(key: string | null, options?: SWRConfigu
     if (error) throw error;
     return data;
   }, [resource.mutate, key, cache]);
-  return { ...resource, data: revoked ? undefined : resource.data, refresh };
+  return { ...resource, data: revoked ? undefined : data, refresh };
 }
 
 export function usePublicConfig(pageId?: string) {

@@ -36,28 +36,10 @@ presentationRoutes.put('/api/admin/presentation', async c => {
     if (old?.short !== page.theme?.short || old?.version !== page.theme?.version || old?.theme !== page.theme?.theme) {
       delete page.headCode;
       delete page.contentHtml;
+      if (page.theme === null) page.themeOptions = {};
     }
     if (!await validatePageTheme(c.env, kind, page)) return c.json({ error: 'theme_unavailable', page: kind }, 409);
   }
   if (!await savePresentation(c.env, config, body.revision)) return c.json({ error: 'presentation_conflict' }, 409);
   return c.json(await loadPresentation(c.env));
-});
-
-presentationRoutes.get('/api/admin/presentation/domains', async c => {
-  if (!c.env.CF_ACCOUNT_ID || !c.env.CF_API_TOKEN) return c.json({ available: false, reason: 'credentials_missing', domains: [] });
-  const { config } = await loadPresentation(c.env);
-  const service = c.req.query('service') ?? config.workerService;
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(service)) return c.json({ error: 'invalid_service' }, 400);
-  try {
-    const domains: string[] = [];
-    for (let page = 1; page <= 10; page++) {
-      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(c.env.CF_ACCOUNT_ID)}/workers/domains?page=${page}&per_page=100`, { headers: { authorization: `Bearer ${c.env.CF_API_TOKEN}` }, signal: AbortSignal.timeout(10000) });
-      if (!response.ok) return c.json({ available: false, reason: response.status === 403 ? 'permission_denied' : 'request_failed', domains: [] });
-      const data = await response.json() as { success: boolean; result: { hostname: string; service: string }[]; result_info?: { total_pages: number } };
-      if (!data.success || !Array.isArray(data.result)) throw new Error('invalid_response');
-      domains.push(...data.result.filter(row => row.service === service).map(row => row.hostname));
-      if (page >= (data.result_info?.total_pages ?? 1)) return c.json({ available: true, domains: [...new Set(domains)], service });
-    }
-    return c.json({ available: false, reason: 'too_many_domains', domains: [] });
-  } catch { return c.json({ available: false, reason: 'request_failed', domains: [] }); }
 });

@@ -1,19 +1,21 @@
 import { requestJson as request } from '../../api/client';
+import type { PushCredentials } from '../../../../shared/push-monitor';
 import type { CheckResult, Monitor, MonitorCheckResult, MonitorInput, ProbeAgentSource } from './types';
 
 export const monitorsApi = {
+  createPushCredentials: () => request<PushCredentials>('/api/monitors/push-credentials', { method: 'POST' }),
   probeSources: () => request<{ agents: ProbeAgentSource[] }>('/api/agents/probe-sources'),
   listMonitors: () => request<{ monitors: Monitor[] }>('/api/monitors'),
   setVisibility: (ids: string[], isPublic: boolean) => request<{ ok: true; updated: number; is_public: boolean }>('/api/monitors/visibility', {
     method: 'POST', body: JSON.stringify({ ids, is_public: isPublic }),
   }),
   createMonitor: (input: MonitorInput) =>
-    request<{ id: string }>('/api/monitors', {
+    request<{ id: string; push_token?: string }>('/api/monitors', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
   updateMonitor: (id: string, input: Partial<MonitorInput>) =>
-    request<{ ok: true }>(`/api/monitors/${encodeURIComponent(id)}`, {
+    request<{ ok: true; push_token?: string }>(`/api/monitors/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     }),

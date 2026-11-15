@@ -25,6 +25,11 @@ async function write(path, method, body) {
 try {
   const db = await mf.getD1Database('DB');
   await applyD1Migrations(db);
+  for (const path of ['/api/admin/presentation/domains', '/api/admin/presentation/domains?service=uptime-polaris']) {
+    const removed = await req('status.example.com', path, { headers: auth });
+    assert.equal(removed.status, 404);
+    assert.equal(removed.data.error, 'not_found');
+  }
   const first = await write('/api/monitors', 'POST', { name: 'visible monitor', type: 'http', target: 'https://visible.example/path' });
   const second = await write('/api/monitors', 'POST', { name: 'hidden monitor', type: 'http', target: 'https://hidden.example/path' });
   const secondRow = await db.prepare('SELECT num_id FROM monitors WHERE id=?').bind(second.id).first();

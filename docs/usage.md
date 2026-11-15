@@ -120,24 +120,28 @@ Go 后端的 SSL 附加检查每天做一次真实 TLS 握手，读取正在使�
 
 ## Push 监控
 
-Push 适合备份任务、定时任务和只能主动出网的设备。创建监控后会得到一个专属 Push 地址，任务按期向它发 **POST**：
+Push 适合备份任务、定时任务和只能主动出网的设备。选择“被动上报”后，页面会自动显示上报地址、密钥和请求示例。填写名称和上报期限，点击“保存监控”后生效，保存时地址和密钥不会变化。之后也可以在编辑页查看。
+
+将密钥存入受保护的环境变量 `PUSH_TOKEN`。把示例中的 `MONITOR_ID` 换成监控 ID，任务按期发送 POST：
 
 ```sh
 curl --fail-with-body -X POST \
-  'https://status.example.com/api/public/push/PUSH_TOKEN?status=1&msg=backup-ok'
+  'https://status.example.com/api/public/push/MONITOR_ID' \
+  -H "Authorization: Bearer $PUSH_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"status":1,"message":"backup-ok"}'
 ```
 
-| 查询参数 | 含义 |
+| JSON 字段 | 含义 |
 | --- | --- |
-| `status` | `0` 表示异常，`2` 表示警告，其他值表示正常 |
-| `msg` | 本次心跳的说明，最多 200 字符；特殊字符需 URL 编码 |
-| `ping` | 可接收的上报元数据，不代表系统对目标做延迟测试 |
+| `status` | 整数：`1` 正常、`0` 故障、`2` 警告；省略时为 `1` |
+| `message` | 可选的状态说明，最多 200 个 Unicode 字符 |
 
-GET 请求返回 405，不产生心跳。不要用浏览器打开链接判断上报是否成功。
+成功返回 `{"ok":true}`。地址本身不含密钥，只有携带正确密钥的请求才能上报。GET 请求返回 405，不产生心跳，不要用浏览器打开地址判断上报是否成功。
 
-上报周期要短于监控允许的失联时间，并给任务波动留出余量。长时间没有心跳，调度会把监控判为异常。Push 页面不显示系统测量的响应延迟，不要再给它加一个“延迟探测任务”。
+上报周期要短于监控允许的失联时间，并给任务波动留出余量。超过期限后，调度会将监控判为故障。Push 不做延迟探测，也不需要安装 Agent；Agent 来源的主动探测任务使用另一条上报链路。
 
-Push Token 等同于该监控的上报凭据，不要贴到公开页面或日志里。Shell 示例里的 Token 会留在命令历史中；自动化任务应把 Token 放在受保护的配置或凭据管理里。
+上报密钥只属于这一个监控。不要把密钥放入 URL、公开页面或日志，自动化任务应从受保护的环境配置或凭据管理中读取。
 
 ## Agent 监控与检查来源
 
@@ -285,7 +289,7 @@ Worker accepts intervals of 60–86,400 seconds and timeouts of 1,000–60,000 m
 - **TCP:** enter `host:port`. Optional send and expected-response data check more than a successful connection.
 - **UDP and ICMP:** Worker requires an online Agent advertising `probe_udp` or `probe_icmp`. Go runs UDP directly and advertises native ICMP only when its permission check succeeds. UDP requires a response; sending a packet alone is not success.
 - **Go DNS, TLS and WebSocket:** these independent types run on the Go backend. DNS accepts a system or configured resolver; TLS checks a `host:port`; WebSocket uses a `ws://` or `wss://` URL.
-- **Push:** create a Push monitor and POST to its tokenized URL on schedule. `status=0` means down, `status=2` means warning, and other values mean up; `msg` carries up to 200 characters. GET does not record a heartbeat. `ping` is supplied metadata, not measured latency. Treat the URL as a credential.
+- **Push:** save a Push monitor to generate its reporting URL and key. The drawer stays open to show both and a request example; they are also available when editing the monitor. POST to `/api/public/push/MONITOR_ID` with `Authorization: Bearer <PUSH_TOKEN>` and a JSON body such as `{"status":1,"message":"job-ok"}`. Status must be the integer `1` (up), `0` (down), or `2` (warning); omitted status defaults to `1`. The optional `message` allows up to 200 Unicode characters. GET returns 405. Keep the key private and send heartbeats within the reporting deadline. Push has no latency probe and does not require an Agent.
 - **Agent host:** register and start an Agent, then create an Agent host monitor to track availability or define resource rules. An Agent can also execute supported checks for other monitors. An offline or incapable source does not mean the target is healthy. See the [Agent guide](agents.md#agent-guide).
 
 HTTP and TCP monitors support SSL, domain-expiry and DNS add-ons; Go also supports add-ons on UDP, TLS and WebSocket. Worker SSL add-ons query public certificate-transparency records daily and do not verify the certificate currently served or its trust chain. Go and capable Agent sources use a TLS handshake. Unknown results stay unknown; they are not successful checks.

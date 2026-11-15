@@ -18,7 +18,8 @@ const d1 = {
 
   /** All push monitors' last heartbeat. Missing table is tolerated by the caller. / 所有 Push 监控的最新心跳；调用方容忍表缺失。 */
   pushAll: 'SELECT monitor_id, ts, status, msg, ping FROM push_heartbeats',
-  pushUpsert: `INSERT INTO push_heartbeats (monitor_id, ts, status, msg, ping) VALUES (?, ?, ?, ?, ?)
+  pushUpsert: `INSERT INTO push_heartbeats (monitor_id, ts, status, msg, ping)
+     SELECT ?, ?, ?, ?, ? FROM monitors WHERE id = ? AND type = 'push' AND active = 1 AND push_token = ?
      ON CONFLICT(monitor_id) DO UPDATE SET
        ts = excluded.ts, status = excluded.status,
        msg = excluded.msg, ping = excluded.ping`,
@@ -35,7 +36,8 @@ const postgres: HeartbeatSQL = {
      ON CONFLICT(id) DO UPDATE SET json = EXCLUDED.json, updated_at = EXCLUDED.updated_at`,
 
   pushAll: 'SELECT monitor_id, ts, status, msg, ping FROM push_heartbeats',
-  pushUpsert: `INSERT INTO push_heartbeats (monitor_id, ts, status, msg, ping) VALUES ($1, $2, $3, $4, $5)
+  pushUpsert: `INSERT INTO push_heartbeats (monitor_id, ts, status, msg, ping)
+     SELECT $1, $2, $3, $4, $5 FROM monitors WHERE id = $6 AND type = 'push' AND active = 1 AND push_token = $7
      ON CONFLICT(monitor_id) DO UPDATE SET
        ts = EXCLUDED.ts, status = EXCLUDED.status,
        msg = EXCLUDED.msg, ping = EXCLUDED.ping`,

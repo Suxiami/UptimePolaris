@@ -18,7 +18,6 @@ import { agentIsOnline, agentStaleAfterSec } from '../agent/liveness';
 import { brandIconSvg } from '../brand';
 import { getDB } from '../db/factory';
 import { agentSQL } from '../db/sql/agent';
-import { heartbeatSQL } from '../db/sql/heartbeat';
 import { monitorSQL } from '../db/sql/monitors';
 import { loadGroups } from '../group/groups';
 import { loadMonitorTags } from '../group/tags';
@@ -36,6 +35,7 @@ import { buildMaintenanceNotices, maintenanceState, publicMaintenance } from './
 import { buildPublicConfig, buildPublicMonitorPayload, publicGroupName } from './payload';
 import { getProbeSourceState, staleProbeReading } from './probe-source';
 import { publicAgentLive, publicMessage, publicTarget } from './redaction';
+import { pushRoutes } from './push';
 
 publicRoutes.get('/api/public/status', async (c) => {
   const monitors = await pageMonitors(c.env, c.req.raw);
@@ -107,40 +107,7 @@ publicRoutes.get('/api/public/status/detail', async (c) => {
   return c.json({ id, days: history.get(id) ?? [] });
 });
 
-/** POST records the latest Push heartbeat. Cron computes transitions and history on its next tick. / POST 记录最新 Push 心跳；定时任务在下次 tick 计算状态变化和历史。 */
-publicRoutes.on(['GET', 'POST'], '/api/public/push/:token', async (c) => {
-  /** Refuse GET before token lookup so link previews cannot record heartbeats. / 查找令牌前拒绝 GET，避免链接预览记录心跳。 */
-  if (c.req.method !== 'POST') {
-    c.header('allow', 'POST');
-    return c.json({
-      error: 'method_not_allowed',
-      hint: 'send this heartbeat with POST; GET is refetched by link previews and crawlers and must not record a push',
-    }, 405);
-  }
-
-  const token = c.req.param('token');
-
-  // Fixed answer for bad tokens; distinguishing cases would be a credential oracle. / 无效 Token 统一返回，区分情况会变成凭据探测。
-  const db = getDB(c.env);
-  const row = await db.queryOne<{ id: string }>(monitorSQL[db.type].idByPushToken, [token]);
-  if (!row) return c.json({ error: 'unknown_token' }, 404);
-
-  /** Push status normalization: 0 DOWN, 2 WARN, every other value UP. / Push 状态规范化：0 为 DOWN，2 为 WARN，其余值为 UP。 */
-  const rawStatus = c.req.query('status');
-  const status = rawStatus === '0' ? 0 : rawStatus === '2' ? 2 : 1;
-
-  // Bound the stored script status line.
-  // 限制存储的脚本状态行长度。
-  const msg = (c.req.query('msg') ?? '').slice(0, 200);
-
-  const pingRaw = Number(c.req.query('ping') ?? 0);
-  const ping = Number.isFinite(pingRaw) && pingRaw > 0 ? Math.round(pingRaw) : 0;
-
-  const now = Math.floor(Date.now() / 1000);
-  await db.execute(heartbeatSQL[db.type].pushUpsert, [row.id, now, status, msg, ping]);
-
-  return c.json({ ok: true });
-});
+publicRoutes.route('/api/public/push', pushRoutes);
 
 /** Public Agent details omit credentials; history is bounded to at most 1440 minutes. / 公共 Agent 详情不含凭据；历史最多保留 1440 分钟。 */
 publicRoutes.get('/api/public/agent/detail/:numId', async (c) => {
@@ -250,12 +217,13 @@ publicRoutes.get('/api/public/config', async (c) => {
   })) : null;
   return c.json({ ...body, maintenance: maintenanceState(settings.values['maintenance.scheduleEnabled'] ? settings.values['alerts.maintenanceWindows'] as MaintenanceWindow[] : [], new Date(), maintenanceOptions), config: { ...body.config, theme: page.colorMode, footerText: page.footer, showCertificateExpiry: page.showExpiry },
     presentation: { kind: context.kind, enabled: context.enabled, configured: context.configured,
-      layout: page.layout, density: page.density, columns: page.columns, width: page.width,
+      layout: page.layout, density: page.density, columns: page.columns, width: page.width, radius: page.radius,
       accent: page.accent, colorMode: page.colorMode, showHistory: page.showHistory, showLatency: page.showLatency,
       showAvailability: page.showAvailability, showExpiry: page.showExpiry, showCountry: page.showCountry, locale: page.locale },
     theme: selected ? { short: selected.theme.short, name: selected.definition.name, version: selected.version.version } : null,
     theme_settings: themeSettings,
-    theme_content_html: selected ? page.contentHtml ?? '' : null,
+    theme_content_html: context.enabled && context.configured && (page.theme === null || selected) ? page.contentHtml ?? '' : null,
+    theme_head_code: context.enabled && context.configured && page.theme === null ? page.headCode ?? '' : null,
   }, 200, { 'cache-control': fresh === '1' || context.preview ? 'private, no-store' : UI_CACHE });
 });
 

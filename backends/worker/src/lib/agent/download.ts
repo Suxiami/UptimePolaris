@@ -14,7 +14,7 @@ export function serveAgentInstaller(c: Context<{ Bindings: Env }>, file: 'instal
 }
 function releaseError(c: Context<{ Bindings: Env }>, error: unknown) {
   const code = error instanceof Error ? error.message : 'github_unavailable';
-  return c.json({ error: code, note: 'Check the Agent GitHub release, network access and API rate limit.' }, code === 'release_not_found' ? 501 : 502);
+  return c.json({ error: code, note: 'Check the Agent GitHub release and network access.' }, code === 'release_not_found' ? 501 : 502);
 }
 export async function agentCapabilities(c: Context<{ Bindings: Env }>) {
   try { return c.json(await latestAgentRelease()); } catch (error) { return releaseError(c, error); }

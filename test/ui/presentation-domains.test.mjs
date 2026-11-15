@@ -33,7 +33,7 @@ function fixture(initial = []) {
   const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) };
   const updatePresentation = async edit => { const next = edit(structuredClone(config)); writes.push(next.domains); if (failed) throw Error('fixture failure'); config = next; };
   const env = { React, useState, useEffect, useAutoSave, updatePresentation, normalizeDomain, usePresentation: () => ({ data: { config } }), useTranslations: () => key => key, useApiErrorMessage: () => String };
-  for (const name of ['Button', 'Input', 'Skeleton', 'Switch', 'MotionDisclosure', 'AutoSaveStatus', 'CloudDownload', 'Globe', 'Monitor', 'Plus', 'Server', 'Trash2']) env[name] = name;
+  for (const name of ['Button', 'Input', 'Skeleton', 'Switch', 'MotionDisclosure', 'AutoSaveStatus', 'Globe', 'Monitor', 'Plus', 'Server', 'Trash2']) env[name] = name;
   const Panel = compile(panelSource, 'PresentationPanel', env);
   const render = () => { cursor = 0; effects = []; const result = Panel(); effects.forEach(fn => fn()); return result; };
   const findAll = (node, predicate) => !node || typeof node !== 'object' ? [] : [...(predicate(node) ? [node] : []), ...(node.props?.children ?? []).flat(Infinity).flatMap(child => findAll(child, predicate))];
@@ -42,10 +42,28 @@ function fixture(initial = []) {
   const input = (tree, kind, index = 0) => findAll(section(tree, kind), node => node.type === 'Input')[index];
   const remove = (tree, kind, index = 0) => findAll(section(tree, kind), node => node.type === 'Button')[index].props.onPress();
   const status = tree => findAll(tree, node => node.type === 'AutoSaveStatus')[0].props;
+  const toggle = tree => findAll(tree, node => node.type === 'Switch')[0].props;
+  const disclosure = tree => findAll(tree, node => node.type === 'MotionDisclosure')[0].props;
   render(); render();
-  return { render, add, input, remove, status, writes, get config() { return config; }, set failed(value) { failed = value; } };
+  return { render, add, input, remove, status, toggle, disclosure, writes, get config() { return config; }, set failed(value) { failed = value; } };
 }
 
+{
+  const initial = [{ hostname: 'servers.example.com', page: 'agent' }];
+  const f = fixture(initial); let tree = f.render();
+  assert.ok(!JSON.stringify(tree).includes('loadDomains'), 'domain lookup button is absent');
+  assert.ok(!JSON.stringify(tree).includes('datalist'), 'domain suggestions are absent');
+  assert.equal(f.input(tree, 'agent').props.list, undefined);
+  f.toggle(tree).onValueChange(false); await wait(10); tree = f.render();
+  assert.equal(f.config.agentEnabled, false);
+  assert.equal(f.disclosure(tree).open, false);
+  assert.deepEqual(f.config.domains, initial, 'disabling the machine page preserves manual mappings');
+  f.toggle(tree).onValueChange(true); await wait(10); tree = f.render();
+  assert.equal(f.config.agentEnabled, true);
+  assert.equal(f.disclosure(tree).open, true);
+  assert.equal(f.input(tree, 'agent').props.value, 'servers.example.com');
+  assert.deepEqual(f.config.domains, initial);
+}
 {
   const f = fixture(); let tree = f.render();
   f.add(tree, 'monitor'); tree = f.render();
@@ -109,4 +127,4 @@ function findAlert(node) {
   if (!node || typeof node !== 'object') return false;
   return node.props?.role === 'alert' || (node.props?.children ?? []).flat(Infinity).some(findAlert);
 }
-console.log('presentation domains: untouched placeholders, cleared mappings, validation, blur, latest edit and retry passed');
+console.log('presentation domains: manual mappings, page toggle, no lookup UI, validation, blur, latest edit and retry passed');

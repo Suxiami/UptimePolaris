@@ -138,7 +138,7 @@ export function ThemesPage() {
       await action();
       setUrl('');
       setFile(null);
-      await load();
+      await Promise.all([load(), mutate(PRESENTATION_KEY)]);
       toast.success(t('installDone'));
     } catch (error) {
       if (error instanceof UnauthorizedError) login();
@@ -158,7 +158,7 @@ export function ThemesPage() {
         return;
       }
       await themesApi.install(theme.sourceUrl!);
-      await load();
+      await Promise.all([load(), mutate(PRESENTATION_KEY)]);
       toast.success(t('updateInstalled'));
     } catch (error) {
       if (error instanceof UnauthorizedError) login();

@@ -9,10 +9,12 @@ import { makeStoredZip } from '../helpers/zip.mjs';
 const code = `
 import { installPackage } from './backends/worker/src/lib/theme/install';
 import { removeTheme } from './backends/worker/src/lib/theme/registry';
+import { themeRoutes } from './backends/worker/src/lib/theme/routes';
 import { defaultPresentation } from './shared/presentation';
 let held = false;
 export default { async fetch(request,env) {
  const u=new URL(request.url);
+ if(u.pathname==='/themes') return themeRoutes.fetch(new Request('http://localhost/api/themes'),env);
  if(u.pathname==='/held') return Response.json({held});
  if(u.pathname==='/hold-install') {
   const bucket=new Proxy(env.THEMES,{get(target,key){if(key==='put')return async(...args)=>{if(!held){held=true;await new Promise(resolve=>setTimeout(resolve,2000));}return target.put(...args);};const v=Reflect.get(target,key);return typeof v==='function'?v.bind(target):v;}});
@@ -21,8 +23,8 @@ export default { async fetch(request,env) {
  if(u.pathname==='/install') return Response.json(await installPackage(env,new Uint8Array(await request.arrayBuffer())));
  if(u.pathname==='/select') {
   const selection=await request.json(), config=defaultPresentation();
-  for(const page of Object.values(config.pages)) { page.theme=selection; page.themeOptions={ headline:'chosen' }; }
-  await env.DB.prepare("INSERT INTO presentation_state VALUES('main',?,?,?)").bind(JSON.stringify(config),'rev',0).run();
+  for(const [kind,page] of Object.entries(config.pages)) { page.theme={...selection,theme:kind}; page.themeOptions={headline:'chosen',obsolete:'old'};page.headCode='<meta name=preview>';page.contentHtml='<aside>Custom</aside>'; }
+  await env.DB.prepare("INSERT INTO presentation_state VALUES('main',?,?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,revision=excluded.revision").bind(JSON.stringify(config),'rev',0).run();
   return Response.json({ok:true});
  }
  if(u.pathname==='/remove') {
@@ -50,6 +52,27 @@ try {
  assert.match(await (await bucket.get(installed.prefix+'/assets/app.js')).text(),new RegExp('/theme/'+installed.prefix+'/assets/pic\\.png'));
  const selection={short:'sample',version:installed.versionKey,theme:'monitor'};
  await req('/select',{method:'POST',body:JSON.stringify(selection)});
+ const upgradedManifest={...manifest,version:'2.0.0',themes:manifest.themes.map(definition=>({...definition,options:[{key:'headline',label:'Headline',type:'string'}]}))};
+ const upgradeZip=makeStoredZip({'polaris-theme.json':JSON.stringify(upgradedManifest),'monitor/index.html':'Monitor v2','agent/index.html':'Agent v2'});
+ const upgraded=await (await req('/install',{method:'POST',body:upgradeZip})).json();
+ assert.equal(upgraded.ok,true,JSON.stringify(upgraded));
+ let upgradedState=await db.prepare('SELECT * FROM presentation_state').first();
+ for(const [kind,page] of Object.entries(JSON.parse(upgradedState.config_json).pages)) {
+  assert.deepEqual(page.theme,{short:'sample',version:upgraded.versionKey,theme:kind});
+  assert.deepEqual(page.themeOptions,{headline:'chosen'});
+  assert.equal(page.headCode,'<meta name=preview>'); assert.equal(page.contentHtml,'<aside>Custom</aside>');
+ }
+ let listed=await (await req('/themes')).json();
+ assert.equal(listed.themes[0].versions.length,1);
+ assert.equal(listed.themes[0].versions[0].versionKey,upgraded.versionKey);
+ const incompatible={...upgradedManifest,version:'3.0.0',themes:upgradedManifest.themes.filter(item=>item.target==='monitor')};
+ const rejected=await (await req('/install',{method:'POST',body:makeStoredZip({'polaris-theme.json':JSON.stringify(incompatible),'monitor/index.html':'incompatible'})})).json();
+ assert.equal(rejected.error,'theme_unavailable');
+ assert.deepEqual(await db.prepare('SELECT * FROM presentation_state').first(),upgradedState);
+ assert.equal((await db.prepare('SELECT version FROM themes WHERE short=?').bind('sample').first()).version,'2.0.0');
+ const reinstalled=await (await req('/install',{method:'POST',body:upgradeZip})).json();
+ assert.equal(reinstalled.prefix,upgraded.prefix);
+ assert.equal((await (await req('/themes')).json()).themes[0].versions.length,1);
  const holding=req('/hold-install',{method:'POST',body:zip});
  for(let i=0;i<100;i++) { if((await (await req('/held')).json()).held) break; await new Promise(resolve=>setTimeout(resolve,10)); }
  assert.equal((await (await req('/held')).json()).held,true);

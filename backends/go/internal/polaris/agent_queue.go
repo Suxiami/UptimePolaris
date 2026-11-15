@@ -18,6 +18,9 @@ func sourceVersion(m Object) string {
 	return encode(project(m, []string{"type", "target", "method", "expected_status", "keyword", "timeout_ms", "interval_sec", "options_json", "check_ssl", "check_domain", "check_dns", "warn_days"}))
 }
 func (a *App) scheduleAgentProbe(ctx context.Context, m Object) error {
+	if str(m, "type") == "push" || str(m, "type") == "agent" {
+		return nil
+	}
 	_, agentID := checkSource(m)
 	if agentID == "" {
 		return nil
@@ -251,7 +254,7 @@ func (a *App) leaseAgentQueue(ctx context.Context, t *transaction, agentID, kind
 			if e != nil {
 				return nil, e
 			}
-			if monitor == nil || !boolean(monitor["active"]) || sourceVersion(monitor) != str(row, "source_version") {
+			if monitor == nil || str(monitor, "type") == "push" || str(monitor, "type") == "agent" || !boolean(monitor["active"]) || sourceVersion(monitor) != str(row, "source_version") {
 				row["state"] = "expired"
 				if e = t.put(kind, id, row); e != nil {
 					return nil, e
@@ -330,7 +333,7 @@ func (a *App) agentProbeResult(w http.ResponseWriter, r *http.Request) error {
 		if e != nil {
 			return e
 		}
-		if m == nil || !boolean(m["active"]) || sourceVersion(m) != str(job, "source_version") {
+		if m == nil || str(m, "type") == "push" || str(m, "type") == "agent" || !boolean(m["active"]) || sourceVersion(m) != str(job, "source_version") {
 			return failure("stale", 409)
 		}
 		observed := integer(b, "observed_at")

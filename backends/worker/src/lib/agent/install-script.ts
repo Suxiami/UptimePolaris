@@ -16,6 +16,7 @@
 
 import { AGENT_SHORT_COMMAND } from '../../../../../shared/project';
 import { powershellQuote } from '../../../../../shared/agent-install';
+import agentReleaseSource from '../../../../../shared/agent-release-repository.json';
 
 export interface InstallParams {
   /** Origin of the deployment serving the script, e.g. https://uptime-polaris.example / 提供脚本的部署源地址，例如 https://uptime-polaris.example */
@@ -463,9 +464,6 @@ fi
 [ -z "$FETCH" ] && die "cannot download: no curl, no wget, and could not install one.
 Install curl by hand and re-run, or copy the binary to $DEST yourself."
 
-URL="$ENDPOINT/api/public/agent/download/$AGENT_NAME-$OS-$ARCH"
-say "→ downloading $URL"
-
 TMP_DIR=$(mktemp -d "\${TMPDIR:-/tmp}/polaris-agent.XXXXXX") || die "cannot create private temporary directory"
 TMP="$TMP_DIR/binary"
 fetch() {
@@ -475,80 +473,70 @@ fetch() {
     busybox-wget) busybox wget -q -O "$2" "$1" ;;
   esac
 }
+manifest_string() {
+  sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p'
+}
+manifest_number() {
+  sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\)[[:space:]]*[,}].*/\\1/p'
+}
 
-if ! fetch "$URL" "$TMP"; then
-  rm -f "$TMP"
-  die "download failed. The Agent GitHub repository needs a published stable release
-with an asset for $OS/$ARCH; also check GitHub network access and API rate limits. Check
-$ENDPOINT/api/public/agent/download/$AGENT_NAME-$OS-$ARCH in a browser:
-the response reports the release error."
-fi
-
-# A prebuilt probe is an ELF/Mach-O/PE binary. Verify that before installing
-# anything: the download route once answered with the site's index.html when a
-# binary was missing, and installing a web page as a daemon fails in a way
-# that is very hard to read.
-# 预构建 Agent 是 ELF、Mach-O 或 PE 二进制文件。安装前先验证：下载路由曾在
-# 文件缺失时返回网站 index.html，把网页当作守护进程安装会导致难以理解的错误。
-if [ "$OS" = darwin ] && head -c 4 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qiE 'cf fa ed fe|fe ed fa cf|ca fe ba be'; then
-  : # Mach-O
-elif head -c 4 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qi '7f 45 4c 46'; then
-  : # ELF, as expected
-elif head -c 2 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qi '4d 5a'; then
-  : # PE
-else
-  FIRST="$(head -c 60 "$TMP" 2>/dev/null | tr -d '\\000' || true)"
-  rm -f "$TMP"
-  die "the downloaded file is not an executable (starts with: $FIRST)
-This means the server did not serve a probe binary. Report it."
-fi
-
-# The magic-byte check above only says the file looks like an executable for
-# this OS. It cannot tell a probe this project built from something else that
-# starts with the same bytes, so the release manifest's sha256 is compared too.
-# 上述魔数字节检查只能说明文件看起来像该系统的可执行文件，无法区分本项目构建的
-# Agent 和具有相同开头的其他文件，因此还要比较发布清单中的 sha256。
-#
 SHA_CMD=""
 if command -v sha256sum >/dev/null 2>&1; then SHA_CMD="sha256sum"
 elif command -v shasum >/dev/null 2>&1; then SHA_CMD="shasum -a 256"
 elif command -v openssl >/dev/null 2>&1; then SHA_CMD="openssl dgst -sha256"
 fi
+[ -n "$SHA_CMD" ] || die "download verification requires sha256sum, shasum, or openssl"
 
-# One line on purpose: a trailing backslash inside a template literal is easy
-# to double and then the continuation silently becomes a new statement.
-# 故意写成一行：模板字面量中的行尾反斜杠容易被重复转义，使续行悄然变成新语句。
-manifest_sha() {
-  tr -d '\\n\\r' | tr '{' '\\n' | grep -E '"key"[[:space:]]*:[[:space:]]*"'"$DETECTED_PLATFORM"'"' | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\\([a-fA-F0-9]\\{64\\}\\)".*/\\1/p' | head -n 1
-}
-
+RELEASE_REPOSITORY="${agentReleaseSource.repository}"
+RELEASE_BASE="https://github.com/$RELEASE_REPOSITORY/releases"
+MANIFEST_URL="$RELEASE_BASE/latest/download/manifest.json"
 MANIFEST_TMP="$TMP_DIR/manifest"
-EXPECTED_SHA=""
-for candidate in "$ENDPOINT/api/public/agent/manifest"; do
-  if fetch "$candidate" "$MANIFEST_TMP" 2>/dev/null; then
-    EXPECTED_SHA=$(manifest_sha < "$MANIFEST_TMP" || true)
-    [ -z "$EXPECTED_SHA" ] || break
-  fi
-done
-rm -f "$MANIFEST_TMP"
+say "-> checking the latest stable release"
+fetch "$MANIFEST_URL" "$MANIFEST_TMP" || die "cannot read the latest Agent release. Check GitHub access from this machine and that a stable release includes manifest.json."
+[ "$(wc -c < "$MANIFEST_TMP" | tr -d '[:space:]')" -le 65536 ] || die "release manifest is too large"
+MANIFEST_JSON=$(tr -d '\\n\\r' < "$MANIFEST_TMP")
+MANIFEST_ROOT=$(printf '%s' "$MANIFEST_JSON" | sed 's/"platforms"[[:space:]]*:[[:space:]]*\\[.*\\]/"platforms":[]/')
+RELEASE_VERSION=$(printf '%s' "$MANIFEST_ROOT" | manifest_string version)
+RELEASE_TAG=$(printf '%s' "$MANIFEST_ROOT" | manifest_string tag)
+[ "$(printf '%s' "$MANIFEST_ROOT" | manifest_string repository)" = "$RELEASE_REPOSITORY" ] || die "release manifest repository does not match $RELEASE_REPOSITORY"
+printf '%s' "$RELEASE_VERSION" | grep -Eq '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$' || die "release manifest has no valid stable version"
+[ "$RELEASE_TAG" = "v$RELEASE_VERSION" ] || die "release manifest tag does not match its version"
+RELEASE_ENTRY=$(printf '%s' "$MANIFEST_JSON" | tr '{' '\\n' | grep -E '"key"[[:space:]]*:[[:space:]]*"'"$DETECTED_PLATFORM"'"' || true)
+[ "$(printf '%s\\n' "$RELEASE_ENTRY" | grep -c . || true)" -eq 1 ] || die "release manifest has no unique build for $DETECTED_PLATFORM"
+RELEASE_FILE="$AGENT_NAME-$RELEASE_VERSION-$DETECTED_PLATFORM"
+[ "$(printf '%s' "$RELEASE_ENTRY" | manifest_string file)" = "$RELEASE_FILE" ] || die "release manifest filename does not match $DETECTED_PLATFORM"
+[ "$(printf '%s' "$RELEASE_ENTRY" | manifest_string version)" = "$RELEASE_VERSION" ] || die "release build version does not match the manifest"
+EXPECTED_SHA=$(printf '%s' "$RELEASE_ENTRY" | manifest_string sha256)
+printf '%s' "$EXPECTED_SHA" | grep -Eq '^[a-fA-F0-9]{64}$' || die "release manifest has no valid SHA-256 for $DETECTED_PLATFORM"
+EXPECTED_SIZE=$(printf '%s' "$RELEASE_ENTRY" | manifest_number size)
+printf '%s' "$EXPECTED_SIZE" | grep -Eq '^[1-9][0-9]{0,7}$' || die "release manifest has no valid size for $DETECTED_PLATFORM"
+[ "$EXPECTED_SIZE" -le 67108864 ] || die "release binary is too large"
 
-if [ -z "$SHA_CMD" ]; then
-  die "download verification requires sha256sum, shasum, or openssl"
-elif [ -z "$EXPECTED_SHA" ]; then
-  die "release manifest has no valid SHA-256 for $DETECTED_PLATFORM"
+# Pin the asset to the manifest version, even if latest changes mid-install.
+URL="$RELEASE_BASE/download/$RELEASE_TAG/$RELEASE_FILE"
+say "  version     : $RELEASE_VERSION"
+say "-> downloading $URL"
+fetch "$URL" "$TMP" || die "download failed for $DETECTED_PLATFORM. Check GitHub access from this machine and the release asset: $URL"
+[ "$(wc -c < "$TMP" | tr -d '[:space:]')" = "$EXPECTED_SIZE" ] || die "downloaded binary size does not match the release manifest"
+
+if [ "$OS" = darwin ] && head -c 4 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qiE 'cf fa ed fe|fe ed fa cf|ca fe ba be'; then
+  : # Mach-O
+elif head -c 4 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qi '7f 45 4c 46'; then
+  : # ELF
+elif head -c 2 "$TMP" 2>/dev/null | od -An -tx1 2>/dev/null | grep -qi '4d 5a'; then
+  : # PE
 else
-  ACTUAL_SHA=$($SHA_CMD "$TMP" 2>/dev/null | grep -oE '[a-fA-F0-9]{64}' | head -n 1 | tr 'A-F' 'a-f')
-  EXPECTED_SHA=$(printf '%s' "$EXPECTED_SHA" | tr 'A-F' 'a-f')
-  if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-    rm -f "$TMP"
-    die "sha256 mismatch for $DETECTED_PLATFORM
+  die "the downloaded release asset is not an executable for $DETECTED_PLATFORM"
+fi
+ACTUAL_SHA=$($SHA_CMD "$TMP" 2>/dev/null | grep -oE '[a-fA-F0-9]{64}' | head -n 1 | tr 'A-F' 'a-f')
+EXPECTED_SHA=$(printf '%s' "$EXPECTED_SHA" | tr 'A-F' 'a-f')
+if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+  die "sha256 mismatch for $DETECTED_PLATFORM
   expected: $EXPECTED_SHA
   actual:   \${ACTUAL_SHA:-none}
-The downloaded file is not the build this deployment's manifest describes.
-That is a replaced or corrupted binary; refusing to install it."
-  fi
-  say "  verified    : sha256 $ACTUAL_SHA"
+The downloaded file does not match the release manifest; refusing to install it."
 fi
+say "  verified    : sha256 $ACTUAL_SHA"
 
 # ---------------------------------------------------------------------------
 # 5. Config
@@ -1158,11 +1146,6 @@ switch ($arch) {
 $detectedPlatform = "windows-$archKey"
 if ($Platform -and $Platform -ne $detectedPlatform) { Die "selected build $Platform does not match this host ($detectedPlatform)" }
 
-$url = "$Endpoint/api/public/agent/download/polaris-agent-windows-$archKey.exe"
-Say "  download    : $url"
-Say ""
-Say "-> downloading"
-
 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
 New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
 if ((Test-Path $dest) -or (Test-Path $cfg)) {
@@ -1184,6 +1167,36 @@ if ((Test-Path $dest) -or (Test-Path $cfg)) {
   }
 }
 
+$releaseRepository = '${agentReleaseSource.repository}'
+$releaseBase = "https://github.com/$releaseRepository/releases"
+$manifestUrl = "$releaseBase/latest/download/manifest.json"
+Say "-> checking the latest stable release"
+try {
+  $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -TimeoutSec 15
+} catch {
+  Die "cannot read the latest Agent release: $($_.Exception.Message). Check GitHub access from this machine and that a stable release includes manifest.json."
+}
+$releaseVersion = [string]$manifest.version
+if ($manifest.repository -cne $releaseRepository -or $releaseVersion -notmatch '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$' -or $manifest.tag -cne "v$releaseVersion") {
+  Die 'release manifest repository, version, or tag is invalid'
+}
+$entries = @($manifest.platforms | Where-Object { $_.key -ceq $detectedPlatform })
+if ($entries.Count -ne 1) { Die "release manifest has no unique build for $detectedPlatform" }
+$entry = $entries[0]
+$releaseFile = "polaris-agent-$releaseVersion-$detectedPlatform.exe"
+if ($entry.file -cne $releaseFile -or $entry.version -cne $releaseVersion -or $entry.sha256 -isnot [string] -or $entry.sha256 -notmatch '^[a-fA-F0-9]{64}$') {
+  Die "release manifest has invalid metadata or SHA-256 for $detectedPlatform"
+}
+if (($entry.size -isnot [int] -and $entry.size -isnot [long] -and $entry.size -isnot [double]) -or $entry.size -le 0 -or $entry.size -gt 64MB -or [Math]::Floor($entry.size) -ne $entry.size) {
+  Die "release manifest has no valid size for $detectedPlatform"
+}
+$expectedSha = $entry.sha256
+$expectedSize = [long]$entry.size
+$url = "$releaseBase/download/$($manifest.tag)/$releaseFile"
+Say "  version     : $releaseVersion"
+Say "  download    : $url"
+Say "-> downloading"
+
 $stage = Join-Path $destDir ('.download-' + [Guid]::NewGuid() + '.exe')
 try {
   Invoke-WebRequest -Uri $url -OutFile $stage -UseBasicParsing
@@ -1192,48 +1205,28 @@ try {
   Die "download failed: $($_.Exception.Message)
 
 The Agent GitHub repository needs a published stable release with an asset for windows/$archKey.
-Also check GitHub network access and API rate limits."
+Check GitHub access from this machine."
 }
 
-# A PE binary starts with 'MZ'. The download route once answered a missing
-# binary with the site's HTML, and a web page saved as .exe fails obscurely.
-# PE 二进制文件以 'MZ' 开头。下载路由曾在文件缺失时返回网站 HTML，
-# 把网页保存为 .exe 会导致难以理解的失败。
 $magic = [System.IO.File]::ReadAllBytes($stage)[0..1]
 if ($magic[0] -ne 0x4D -or $magic[1] -ne 0x5A) {
   Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
   Die "the downloaded file is not a Windows executable. Report this."
 }
 
-# 'MZ' only says the file looks like a Windows program. Compare the release
-# manifest's SHA-256 as well: a replaced binary keeps its first two bytes.
-# 'MZ' 只能说明文件看起来像 Windows 程序；被替换的二进制文件也可能保留这两个字节，
-# 因此还要比较发布清单中的 SHA-256。
-#
-$expectedSha = ''
-foreach ($manifestUrl in @("$Endpoint/api/public/agent/manifest")) {
-  try {
-    $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -TimeoutSec 15
-  } catch { continue }
-  $entry = @($manifest.platforms) | Where-Object { $_.key -eq "windows-$archKey" } | Select-Object -First 1
-  if ($entry -and $entry.sha256 -match '^[a-fA-F0-9]{64}$') { $expectedSha = $entry.sha256; break }
-}
-
-if (-not $expectedSha) {
+if ((Get-Item -LiteralPath $stage).Length -ne $expectedSize) {
   Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
-  Die "release manifest has no valid SHA-256 for windows-$archKey"
-} else {
-  $actualSha = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
-  if ($actualSha -ne $expectedSha) {
-    Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
-    Die "sha256 mismatch for windows-$archKey
+  Die 'downloaded binary size does not match the release manifest'
+}
+$actualSha = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
+if ($actualSha -ne $expectedSha) {
+  Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+  Die "sha256 mismatch for $detectedPlatform
   expected: $expectedSha
   actual:   $actualSha
-The downloaded file is not the build this deployment's manifest describes.
-That is a replaced or corrupted binary; refusing to install it."
-  }
-  Say "  verified    : sha256 $actualSha"
+The downloaded file does not match the release manifest; refusing to install it."
 }
+Say "  verified    : sha256 $actualSha"
 
 # The token goes in a config file rather than the task's arguments: a task
 # argument is readable by any user through Get-ScheduledTask / schtasks, and

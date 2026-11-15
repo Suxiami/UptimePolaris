@@ -29,10 +29,11 @@ const built = await build({
   } }],
 });
 
-async function worker(bindings) {
+async function worker(bindings, { config = true } = {}) {
   const instance = new Miniflare({ modules: true, script: built.outputFiles[0].text,
     compatibilityDate: '2025-01-01', compatibilityFlags: ['nodejs_compat'],
-    bindings: { PBKDF2_ITERATIONS: '3000', ...bindings }, analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } }, d1Databases: { DB: crypto.randomUUID() } });
+    bindings: { PBKDF2_ITERATIONS: '3000', ...bindings }, analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } }, d1Databases: { DB: crypto.randomUUID() },
+    ...(config ? { kvNamespaces: { CONFIG: 'auth-setup-config' } } : {}) });
   const db = await instance.getD1Database('DB');
   await applyD1Migrations(db);
   return { instance, db };
@@ -57,7 +58,7 @@ try {
   assert.equal(initial.body.setupCredential, 'ADMIN_TOKEN');
   assert.deepEqual(initial.body.setupRequirements, [
     { key: 'database', required: false, ok: true },
-    { key: 'config', required: true, ok: false },
+    { key: 'config', required: true, ok: true },
     { key: 'adminToken', required: true, ok: true },
     { key: 'themes', required: false, ok: false },
     { key: 'analytics', required: true, ok: true },
@@ -107,6 +108,17 @@ try {
   for (let index = 0; index < 5; index++) await request(instance, '/api/auth/login', { username: 'unknown-' + index, password: 'guess' }, '', '192.0.2.20');
   assert.equal((await request(instance, '/_derive-count')).body.calls, 0);
 } finally { await instance.dispose(); }
+
+const noConfig = await worker({ ADMIN_TOKEN: 'setup-secret' }, { config: false });
+try {
+  const session = (await request(noConfig.instance, '/api/auth/session')).body;
+  assert.equal(session.setupRequirements.find(item => item.key === 'config').ok, false);
+  const rejected = await request(noConfig.instance, '/api/auth/setup', { credential: 'setup-secret', username: 'owner', password: 'private-password' });
+  assert.equal(rejected.response.status, 503);
+  assert.equal(rejected.body.error, 'deployment_incomplete');
+  assert.ok(rejected.body.missing.includes('config'));
+  assert.equal((await noConfig.db.prepare('SELECT COUNT(*) AS n FROM users').first()).n, 0);
+} finally { await noConfig.instance.dispose(); }
 
 const bare = await worker({});
 try {

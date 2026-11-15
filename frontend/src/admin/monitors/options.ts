@@ -20,8 +20,6 @@ export function tagKey(tag: MonitorTag): string {
   return String(tag.tag_id ?? tag.id);
 }
 
-/** Push credential URL on the current origin; treat it as a secret. / 当前源上的 Push 凭据 URL；应作为密钥处理。 */
-export function pushEndpointUrl(token: string | null | undefined): string {
-  if (!token) return '';
-  return `${window.location.origin}/api/public/push/${token}`;
+export function pushEndpointUrl(id: string): string {
+  return `${window.location.origin}/api/public/push/${encodeURIComponent(id)}`;
 }

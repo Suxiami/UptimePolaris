@@ -10,7 +10,7 @@ const bundle = await build({
   entryPoints: ['backends/worker/src/index.ts'], bundle: true, write: false, format: 'esm',
   target: 'es2022', plugins: workerBundlePlugins(), logLevel: 'error',
 });
-const mf = new Miniflare({
+const mf = new Miniflare({ kvNamespaces: { CONFIG: 'avatar-config' },
   modules: true, script: bundle.outputFiles[0].text,
   compatibilityDate: '2025-01-01', compatibilityFlags: ['nodejs_compat'],
   analyticsEngineDatasets: { UPTIME: { dataset: 'setup_fixture' } }, d1Databases: ['DB'], bindings: { ADMIN_TOKEN: 'avatar-fixture-secret' },

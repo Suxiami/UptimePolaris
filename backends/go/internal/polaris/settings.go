@@ -213,7 +213,7 @@ func validatePresentation(config Object) bool {
 		for key, limit := range map[string]int{"headCode": 16 << 10, "contentHtml": 32 << 10} {
 			if value, exists := page[key]; exists {
 				text, ok := value.(string)
-				if !ok || len(text) > limit || (page["theme"] == nil && text != "") {
+				if !ok || len(text) > limit {
 					return false
 				}
 			}
@@ -223,6 +223,8 @@ func validatePresentation(config Object) bool {
 			if len(selected) != 3 || !themeIDPattern.MatchString(str(selected, "short")) || !themeIDPattern.MatchString(str(selected, "theme")) || str(selected, "version") == "" || len(str(selected, "version")) > 160 {
 				return false
 			}
+		} else if !validateBuiltinThemeOptions(kind, object(page["themeOptions"])) {
+			return false
 		}
 	}
 	return true
@@ -259,7 +261,7 @@ func (a *App) pageContext(r *http.Request) (string, bool, bool, Object, error) {
 			}
 		}
 	}
-	return kind, enabled, configured, object(object(config["pages"])[kind]), nil
+	return kind, enabled, configured, resolveBuiltinPageView(kind, object(object(config["pages"])[kind])), nil
 }
 func netSplitHost(host string) (string, string, error) {
 	u, e := url.Parse("http://" + host)
@@ -421,6 +423,9 @@ func (a *App) settingsRoutes() {
 				if str(old, "short") != str(next, "short") || str(old, "version") != str(next, "version") || str(old, "theme") != str(next, "theme") {
 					delete(page, "headCode")
 					delete(page, "contentHtml")
+					if next == nil {
+						page["themeOptions"] = Object{}
+					}
 				}
 			}
 			state = Object{"config": config, "revision": token(16)}
@@ -430,10 +435,6 @@ func (a *App) settingsRoutes() {
 			return e
 		}
 		respond(w, 200, state)
-		return nil
-	})
-	a.route("GET /api/admin/presentation/domains", false, func(w http.ResponseWriter, r *http.Request) error {
-		respond(w, 200, Object{"available": false, "reason": "runtime_unsupported", "domains": []string{}})
 		return nil
 	})
 	for _, method := range []string{"GET", "POST", "DELETE"} {

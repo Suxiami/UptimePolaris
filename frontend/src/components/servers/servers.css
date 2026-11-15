@@ -317,7 +317,7 @@ html[data-motion='reduced'] .server-filter-chevron { transition: none; }
   inset: 0;
   border-radius: inherit;
 }
-.server-card { border-radius: 12px; }
+.server-card { border-radius: var(--polaris-page-radius, 12px); }
 .server-card .server-link:focus-visible { outline: none; }
 .server-card:has(.server-link:focus-visible) {
   outline: 2px solid rgb(59 130 246 / 0.5);

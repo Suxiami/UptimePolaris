@@ -270,6 +270,32 @@ async function writeSyncMarker(env: Env, marker: SyncMarker): Promise<void> {
 }
 
 /**
+ * Claim today's sync in one statement.
+ *
+ * The read-then-write version let two invocations both see "no marker" and both
+ * run the sync; this conditional upsert only changes the row when the day is
+ * still unclaimed and any backoff has expired, so the winner is whoever the
+ * database accepted first.
+ * 用一条语句占位。先读后写的版本会让两次调用都看到“没有标记”并各自执行同步；
+ * 这个条件 upsert 只在当天未完成且退避已过期时改写行，先被数据库接受的调用才算占位成功。
+ */
+async function claimDailySync(env: Env, day: string, now: number): Promise<boolean> {
+  const db = getDB(env);
+  const pg = db.type === 'postgres';
+  // D1 用 json_extract；PostgreSQL 用 `->>` 与显式转型。 / D1 uses json_extract; PostgreSQL uses `->>` with an explicit cast.
+  const storedDay = pg ? "COALESCE(live_state.json->>'day', '')" : "COALESCE(json_extract(live_state.json, '$.day'), '')";
+  const storedRetry = pg ? "COALESCE((live_state.json->>'retryAt')::bigint, 0)" : "COALESCE(json_extract(live_state.json, '$.retryAt'), 0)";
+  const arg = (n: number) => (pg ? `$${n}` : `?${n}`);
+  const result = await db.execute(
+    `INSERT INTO live_state (id, json, updated_at) VALUES ('sync-meta', ${arg(1)}, ${arg(2)})
+     ON CONFLICT(id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at
+     WHERE ${storedDay} <> ${arg(3)} AND ${storedRetry} <= ${arg(4)}`,
+    [JSON.stringify({ retryAt: now + SYNC_RETRY_SECONDS }), now, day, now],
+  );
+  return result.rowsAffected === 1;
+}
+
+/**
  * Run the daily sync from the minute tick after 00:10 UTC, once per day.
  *
  * The marker claims the run before starting, so a sync slower than one minute
@@ -281,10 +307,12 @@ export async function maybeRunDailySync(env: Env, now: number): Promise<SyncResu
   const at = new Date(now * 1000);
   if (at.getUTCHours() * 60 + at.getUTCMinutes() < SYNC_START_MINUTE) return null;
   const today = at.toISOString().slice(0, 10);
+  // 先读一次只是快速跳过，真正的互斥由 claimDailySync 的条件写入保证。
+  // The read only skips the common case; claimDailySync's conditional write is the real exclusion.
   const marker = await readSyncMarker(env);
   if (marker.day === today) return null;
   if (marker.retryAt && marker.retryAt > now) return null;
-  await writeSyncMarker(env, { retryAt: now + SYNC_RETRY_SECONDS });
+  if (!await claimDailySync(env, today, now)) return null;
   const result = await runSync(env);
   await writeSyncMarker(env, { day: today });
   return result;

@@ -198,12 +198,13 @@ try {
   assert.equal(await evaluate(`${dialog}.textContent.includes(${JSON.stringify(catalog.agent.howToInstall)})`),false);
   await click(catalog.agents.reinstall,dialog);
   const topDialog = "[...document.querySelectorAll('[role=dialog]')].at(-1)";
-  const builds = await fetch(origin + '/api/public/agent/capabilities').then(response=>response.json());
-  await until(`${topDialog}.querySelectorAll('code').length===${builds.platforms.length} && ${builds.platforms.length}>0`);
-  for(const platform of builds.platforms) assert.ok((await evaluate(`${topDialog}.textContent`)).includes(platform.key));
+  await until(`${topDialog}.querySelectorAll('code').length===3`);
+  const reinstallText = await evaluate(`${topDialog}.textContent`);
+  for (const platform of ['Linux', 'Windows', 'macOS']) assert.ok(reinstallText.includes(platform));
+  assert.ok(!reinstallText.includes('--platform') && !reinstallText.includes('-platform'));
   await click(catalog.agents.close,topDialog);
   await until("document.querySelectorAll('[role=dialog]').length===1");
-  console.log('PASS Agent configuration: actual reported values, inline install command removed, reinstall opens all packaged platform commands');
+  console.log('PASS Agent configuration: actual reported values, inline install command removed, reinstall offers host-detected install commands without release discovery');
   assert.equal(await evaluate(`document.getElementById(${probeInput}.getAttribute('aria-labelledby')).textContent`),catalog.agents.probeEnabled);
   assert.equal(await evaluate(`${probeInput}.checked`),true);
   await evaluate(`${probeInput}.click()`);

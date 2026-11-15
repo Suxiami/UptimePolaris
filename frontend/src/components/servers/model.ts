@@ -9,6 +9,8 @@ export type ServerView = 'cards' | 'list' | 'map';
 export type ServerSort = 'default' | 'name' | 'cpu' | 'memory' | 'disk' | 'load' | 'network' | 'uptime';
 export type ResourceKind = 'cpu' | 'memory' | 'disk';
 export type ServerPageConfig = {
+  theme_head_code?: string | null;
+  theme_content_html?: string | null;
   presentation: import('../context/PresentationViewContext').PresentationView;
   siteMeta: { title: string; description: string; icon: string };
   config: { footerText: string };

@@ -1,4 +1,5 @@
 import { PAGE_KINDS, type PageKind, type PageSettings } from '../../../../../shared/presentation';
+import { validateBuiltinThemeOptions } from '../../../../../shared/builtin-theme';
 import type { Env } from '../../types';
 import { getDB } from '../db/factory';
 import { themeSQL } from '../db/sql/themes';
@@ -38,7 +39,7 @@ export async function pageTheme(env: Env, kind: PageKind, page: PageSettings) {
   return definition ? { theme, version, manifest: parsed.manifest, definition } : null;
 }
 export async function validatePageTheme(env: Env, kind: PageKind, page: PageSettings): Promise<boolean> {
-  if (!page.theme) return Object.keys(page.themeOptions).length === 0;
+  if (!page.theme) return validateBuiltinThemeOptions(kind, page.themeOptions);
   const selected = await pageTheme(env,kind,page);
   if (!selected || !await themeVersionEntryAvailable(env,selected.version.prefix,selected.definition.entry)) return false;
   const options = new Map(selected.definition.options.map(option => [option.key,option]));

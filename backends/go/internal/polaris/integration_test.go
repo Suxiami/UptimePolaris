@@ -300,10 +300,29 @@ func TestVisibilityTaxonomyPushAndHistory(t *testing.T) {
 	if !boolean(stored["is_public"]) {
 		t.Fatal("non-atomic visibility")
 	}
-	code, result = s.request(t, "GET", "/api/public/push/"+str(monitor, "push_token"), nil, false)
+	code, result = s.request(t, "GET", "/api/public/push/"+id, nil, false)
 	expectStatus(t, code, 405, result)
-	code, result = s.request(t, "POST", "/api/public/push/"+str(monitor, "push_token")+"?status=1&ping=123", nil, false)
-	expectStatus(t, code, 200, result)
+	request, err := http.NewRequest(http.MethodPost, s.server.URL+"/api/public/push/"+id, strings.NewReader(encode(Object{"status": 1, "message": "job-ok"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+str(monitor, "push_token"))
+	response, err := s.client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		response.Body.Close()
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	expectStatus(t, response.StatusCode, 200, result)
+	code, updated := s.request(t, "PUT", "/api/monitors/"+id, Object{"name": "Private Push"}, true)
+	expectStatus(t, code, 200, updated)
+	if str(updated, "push_token") != str(monitor, "push_token") {
+		t.Fatal("Push update must return the existing credential", updated)
+	}
 	if e := s.app.passiveCheck(context.Background(), stored); e != nil {
 		t.Fatal(e)
 	}

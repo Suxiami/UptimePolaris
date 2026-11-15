@@ -146,6 +146,7 @@ export async function handleProbeSources(c: Context<{ Bindings: Env }>): Promise
 }
 
 export function monitorProbeSource(monitor: Monitor): ProbeSource {
+  if (!isActiveProbeType(monitor.type)) return { type: 'worker' };
   const options = parseOptions<{ check_source?: ProbeSource }>(monitor.options_json);
   return options.check_source?.type === 'agent' && typeof options.check_source.agent_id === 'string'
     ? options.check_source
@@ -244,7 +245,12 @@ export async function pollAgentProbeJobs(env: Env, agent: Agent, now: number): P
     const snapshot = await db.queryOne<Monitor>(db.type === 'postgres'
       ? 'SELECT * FROM monitors WHERE id = $1 AND active = 1'
       : 'SELECT * FROM monitors WHERE id = ? AND active = 1', [row.monitor_id]);
-    if (!snapshot || snapshot.type !== row.probe_type) continue;
+    if (!snapshot || !isActiveProbeType(snapshot.type) || snapshot.type !== row.probe_type) {
+      await db.execute(db.type === 'postgres'
+        ? "UPDATE agent_probe_jobs SET state='expired' WHERE run_id=$1 AND state IN ('pending','leased')"
+        : "UPDATE agent_probe_jobs SET state='expired' WHERE run_id=? AND state IN ('pending','leased')", [runId]);
+      continue;
+    }
     const currentSource = monitorProbeSource(snapshot);
     if (currentSource.type !== 'agent' || currentSource.agent_id !== agent.id ||
         await sourceVersion(snapshot, currentSource) !== row.source_version) {
@@ -319,7 +325,7 @@ export async function submitAgentProbeResult(
     db.type === 'postgres' ? 'SELECT * FROM monitors WHERE id = $1 AND active = 1' : 'SELECT * FROM monitors WHERE id = ? AND active = 1',
     [job.monitor_id],
   );
-  if (!monitor || monitor.type !== job.probe_type || monitor.target !== job.target) return 'stale';
+  if (!monitor || !isActiveProbeType(monitor.type) || monitor.type !== job.probe_type || monitor.target !== job.target) return 'stale';
   const source = monitorProbeSource(monitor);
   if (source.type !== 'agent' || source.agent_id !== agent.id || await sourceVersion(monitor, source) !== job.source_version) return 'stale';
   const observedAt = Number(input.observed_at);

@@ -43,7 +43,7 @@ Uptime Polaris 定时检查网站、端口和定时任务，采集服务器指�
 - HTTP 检查可以校验状态码、JSON 字段、响应头和响应时间；TCP 检查端口能否连接，也可以发送内容并校验返回。
 - Go 后端还能直接检查 UDP、ICMP、DNS、TLS 和 WebSocket。Worker 上的 UDP 和 ICMP 检查由 Agent 执行。
 - 附加检查包括 SSL 证书到期、域名到期和 DNS 记录。
-- Push 监控提供专属上报地址，定时任务按期发送 POST 请求，超时未上报即判为异常。
+- Push 监控会生成专属上报地址和密钥。定时任务携带密钥发送 POST，超过期限没有收到心跳就判为故障。
 - 最短检查间隔为 60 秒（Worker）或 5 秒（Go）。目标只在内网开放时，可以指定一台 Agent 作为检查来源。
 
 监控类型和各项配置，详见[使用手册](docs/usage.md)。
@@ -159,7 +159,7 @@ pa logs -f
 
 ### 升级
 
-升级前请先备份数据库，完整步骤见[运维指南](docs/operations.md#升级流程)。
+升级前请先备份数据库和 `CONFIG` KV 命名空间，完整步骤见[运维指南](docs/operations.md#升级流程)。
 
 - **Cloudflare**：Fork 部署在 GitHub 上执行 Sync fork，Workers Builds 会自动重新部署，并保留控制台中添加的绑定。按钮部署需要把新版本合并到生成的仓库。
 - **Go**：停止服务并备份数据目录，替换程序后使用原数据目录启动。
@@ -167,7 +167,7 @@ pa logs -f
 
 ### 卸载
 
-- **Cloudflare**：在控制台删除 Worker。D1 数据库、R2 存储桶和 PostgreSQL 数据库不会随 Worker 删除，不再需要时请单独删除。
+- **Cloudflare**：在控制台删除 Worker。D1 数据库、R2 存储桶、KV 命名空间和 Analytics Engine 数据集不会随 Worker 删除，PostgreSQL 数据库也一样；不再需要时请单独删除。
 - **Go**：停止服务后删除程序和数据目录；使用 PostgreSQL 时，另行删除对应的数据库。
 - **Agent**：下载当前站点的安装脚本，然后执行卸载：
 
@@ -183,7 +183,7 @@ pa logs -f
 - 数据保存在你自己的部署中：Worker 使用你 Cloudflare 账号下的 D1 或你提供的 PostgreSQL，Go 使用数据目录中的 SQLite 或你提供的 PostgreSQL。
 - 状态页和公开接口无需登录即可访问。监控名称、HTTP 目标的域名和路径、TCP 目标的主机和端口会公开显示，请勿在其中填写内网地址或密钥。
 - HTTP 目标中的用户名、密码和查询参数会被去掉；认证配置和 Agent Token 不会出现在公开数据中。
-- Push 地址中的 Token 相当于该监控的上报凭据，请勿公开。
+- 每个 Push 监控有独立的上报密钥，通过 `Authorization` 请求头发送，请勿公开。上报地址中不包含密钥。
 - 不需要公开的监控，可以在监控列表中选择“在状态页隐藏”，之后只在后台可见。
 - Worker 的 SSL 到期检查会查询公开的证书透明度日志；Agent 启动时会查询本机公网 IP 的归属地，更新时会访问 GitHub。
 
@@ -192,16 +192,16 @@ pa logs -f
 ## 常见问题
 
 **初始化页面停在部署检查，无法进入下一步？**
-请在 Worker 的 **Settings** 中配置必需的 `ADMIN_TOKEN` 和 `UPTIME`，保存并部署后点击“重新检查”。D1 和 R2 为可选项；未绑定 D1 时，在下一步配置 PostgreSQL 连接。
+请在 Worker 的 **Settings** 中配置必需的 `ADMIN_TOKEN`、`UPTIME` 和 `CONFIG` KV 命名空间，保存并部署后点击“重新检查”。D1 和 R2 为可选项；未绑定 D1 时，在下一步配置 PostgreSQL 连接。
 
 **在浏览器里打开 Push 地址，为什么没有数据？**
-浏览器发送的是 GET 请求，Push 只接受 POST，GET 请求会返回 405。请使用 `curl -X POST` 或在任务中发送 POST 请求。
+浏览器发送 GET 请求，会返回 405。请使用监控编辑页提供的 POST 示例，通过 `Authorization` 请求头发送密钥，用 JSON 请求体提交状态。
 
 **通知测试成功，故障时却没有收到？**
 请检查渠道是否启用、分组范围是否包含该监控，以及当前是否处于维护窗口。渠道没有选择任何分组时，会接收全部监控的通知。
 
 **Agent 显示离线？**
-在机器上执行 `pa status` 和 `pa logs -f`，确认服务正在运行，并且能够访问站点域名。默认每 60 秒上报一次，约 3 分钟没有上报会判为离线。
+在机器上执行 `pa status` 和 `pa logs -f`，确认服务正在运行，并且能够访问站点域名。Worker 后端默认每 60 秒上报一次，Go 后端按采样间隔上报（默认 5 秒）。连续三个上报周期没有报告判为离线（30–3600 秒），所以“约 3 分钟”只适用于 Worker 的 60 秒默认值。
 
 更多问题见[常见问题](docs/troubleshooting.md)。仍无法解决时，欢迎在 [Issues](https://github.com/XingLingQAQ/UptimePolaris/issues) 中反馈。
 

@@ -18,8 +18,6 @@ const d1 = {
   /** Public agent detail by numeric id; `type = 'agent'` guards against other types. / 按数字 ID 取 Agent 公开详情；`type = 'agent'` 防止类型不符。 */
   agentByNumId:
     "SELECT id, name, type, target, group_id, active, agent_id FROM monitors WHERE num_id = ? AND type = 'agent' AND is_public = 1",
-  /** Resolve a push token to its monitor. Public push endpoint. / 将 Push 令牌解析为监控，供公共 Push 端点使用。 */
-  idByPushToken: 'SELECT id FROM monitors WHERE push_token = ?',
   insert: `INSERT INTO monitors (id,num_id,name,type,target,method,expected_status,keyword,interval_sec,timeout_ms,warn_days,check_ssl,check_domain,check_dns,options_json,push_token,agent_id,is_public,group_id,active,created_at,updated_at) VALUES (?,(SELECT COALESCE(MAX(num_id),0)+1 FROM monitors),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
   update: `UPDATE monitors SET
        name = COALESCE(?, name), type = ?, target = ?,
@@ -71,7 +69,6 @@ const postgres: MonitorSQL = {
     'SELECT id, name, type, target, group_id, active, interval_sec, timeout_ms FROM monitors WHERE num_id = $1 AND is_public = 1',
   agentByNumId:
     "SELECT id, name, type, target, group_id, active, agent_id FROM monitors WHERE num_id = $1 AND type = 'agent' AND is_public = 1",
-  idByPushToken: 'SELECT id FROM monitors WHERE push_token = $1',
   insert: `INSERT INTO monitors (id,num_id,name,type,target,method,expected_status,keyword,interval_sec,timeout_ms,warn_days,check_ssl,check_domain,check_dns,options_json,push_token,agent_id,is_public,group_id,active,created_at,updated_at)
     VALUES ($1,(SELECT COALESCE(MAX(num_id),0)+1 FROM monitors),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,1,$19,$20)`,
   update: `UPDATE monitors SET name=COALESCE($1,name), type=$2, target=$3,

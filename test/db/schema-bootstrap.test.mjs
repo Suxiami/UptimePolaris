@@ -76,7 +76,7 @@ const workerBundle = await build({
   }],
 });
 
-const mf = new Miniflare({
+const mf = new Miniflare({ kvNamespaces: { CONFIG: 'schema-bootstrap-config' },
   modules: true,
   script: workerBundle.outputFiles[0].text,
   compatibilityDate: '2025-01-01',

@@ -1,6 +1,7 @@
 
 import { usePageConfig } from '@/components/context/PageConfigContext';
 import { usePresentationView } from '@/components/context/PresentationViewContext';
+import { PageCustomization } from './PageCustomization';
 import { Footer } from '@/components/status-page/Footer';
 import { useConfig } from '@/components/status-page/useStatusPageData';
 import { ThemeSwitch } from '@/components/ui/ThemeSwitch';
@@ -63,7 +64,7 @@ export function StatusPageShell({ children, footerConfig }: StatusPageShellProps
   }, [liveConfig?.config.icon]);
 
   return (
-    <div className="polaris relative flex min-h-dvh flex-col bg-[var(--polaris-canvas)] text-[var(--polaris-ink)]" style={presentation ? { '--polaris-accent': presentation.accent, '--polaris-chart': presentation.accent, '--polaris-page-width': `${presentation.width}px` } as React.CSSProperties : undefined}>
+    <div className="polaris relative flex min-h-dvh flex-col bg-[var(--polaris-canvas)] text-[var(--polaris-ink)]" style={presentation ? { '--polaris-accent': presentation.accent, '--polaris-chart': presentation.accent, '--polaris-page-width': `${presentation.width}px`, '--polaris-page-radius': `${presentation.radius}px` } as React.CSSProperties : undefined}>
       <SiteHeader />
       <motion.main
         key={`${pageId}:${pathname}`}
@@ -73,6 +74,7 @@ export function StatusPageShell({ children, footerConfig }: StatusPageShellProps
         className="mx-auto w-full max-w-[var(--polaris-page-width,1120px)] grow px-4 sm:px-6"
       >
         {children}
+        <PageCustomization headCode={liveConfig?.theme_head_code} contentHtml={liveConfig?.theme_content_html} />
       </motion.main>
       <Footer config={resolvedFooterConfig} />
     </div>

@@ -50,7 +50,7 @@ try {
   await report();
   const monitor = await success('/api/monitors', { name: 'Full Agent checks', type: 'http', target: 'https://www.example.com:8443/health',
     check_ssl: 1, check_domain: 1, check_dns: 1, timeout_ms: 20000, interval_sec: 60,
-    options_json: { check_source: { type: 'agent', agent_id: machine.id }, dns: { recordType: 'AAAA', expected: '2001:db8' } } }, true);
+    options_json: { check_source: { type: 'agent', agent_id: machine.id }, dns: { recordType: 'AAAA', expected: '2001:db8::1' } } }, true);
   const jobs = () => success('/api/public/agent/jobs/' + machine.token);
   const submit = (job, addons, token = machine.token) => request('/api/public/agent/results/' + token, {
     run_id: job.run_id, lease_token: job.lease_token, observed_at: now, status: 1, status_code: 200, latency_ms: 17.5, message: '', addons });
@@ -64,7 +64,7 @@ try {
   assert.deepEqual(first.addons.ssl, { host: 'www.example.com', port: 8443, warn_days: 14 });
   assert.deepEqual(first.addons.domain, { domain: 'example.com', warn_days: 14 });
   assert.equal(first.addons.dns.record_type, 'AAAA');
-  assert.equal(first.addons.dns.expected, '2001:db8');
+  assert.equal(first.addons.dns.expected, '2001:db8::1');
   assert.equal((await submit(first, {})).status, 400, 'requested checks cannot disappear');
   assert.equal((await submit(first, { ...results(), ssl: { ...results().ssl, tls_valid: undefined } })).status, 400);
   assert.equal((await submit(first, results(), foreign.token)).status, 404, 'another machine cannot complete the lease');

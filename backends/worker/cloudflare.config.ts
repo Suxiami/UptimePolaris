@@ -41,7 +41,6 @@ export default defineConfig({
 		env: {
 			// CONFIG: bindings.kv({ id: "<KV namespace ID>" }),
 			PBKDF2_ITERATIONS: bindings.text("3000"),
-			DATABASE_TYPE: bindings.text("d1"),
 			ANALYTICS_SQL: bindings.analytics(),
 			/**
 			 * Analytics Engine, which must be enabled once in the dashboard

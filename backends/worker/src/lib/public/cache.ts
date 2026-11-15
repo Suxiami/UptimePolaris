@@ -68,10 +68,12 @@ export async function publicVisibilityRevision(env: Env): Promise<string> {
 }
 
 /** Visibility and its cache generation must commit together. / 可见性与缓存版本必须一起提交。 */
-export function visibilityRevisionWrite(now: number, postgres: boolean): { sql: string; params: unknown[] } {
+export function visibilityRevisionWrite(now: number, postgres: boolean, presentationRevision?: string): { sql: string; params: unknown[] } {
   return {
-    sql: `INSERT INTO live_state(id,json,updated_at) VALUES ('public-visibility',${postgres ? '$1,$2' : '?,?'}) ON CONFLICT(id) DO UPDATE SET json=excluded.json, updated_at=excluded.updated_at`,
-    params: [JSON.stringify({ revision: crypto.randomUUID() }), now],
+    sql: `INSERT INTO live_state(id,json,updated_at) ${presentationRevision
+      ? `SELECT 'public-visibility',${postgres ? '$1,$2' : '?,?'} WHERE EXISTS (SELECT 1 FROM presentation_state WHERE id='main' AND revision=${postgres ? '$3' : '?'})`
+      : `VALUES ('public-visibility',${postgres ? '$1,$2' : '?,?'})`} ON CONFLICT(id) DO UPDATE SET json=excluded.json, updated_at=excluded.updated_at`,
+    params: [JSON.stringify({ revision: crypto.randomUUID() }), now, ...(presentationRevision ? [presentationRevision] : [])],
   };
 }
 

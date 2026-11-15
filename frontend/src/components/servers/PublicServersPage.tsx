@@ -1,4 +1,5 @@
 import { ApiError } from '@/api/errors';
+import { PageCustomization } from '@/components/status-page/PageCustomization';
 import { Footer } from '@/components/status-page/Footer';
 import { ThemeSwitch } from '@/components/ui/ThemeSwitch';
 import { useLocale } from '@/i18n/IntlProvider';
@@ -161,12 +162,12 @@ export function PublicServersPage({ config, configError, configRefreshing, onRef
   });
 
   const icon = <SiteIcon source={config.siteMeta.icon} />;
-  const style = { '--polaris-accent': presentation.accent, '--polaris-chart': presentation.accent, '--polaris-page-width': `${presentation.width}px` } as CSSProperties;
+  const style = { '--polaris-accent': presentation.accent, '--polaris-chart': presentation.accent, '--polaris-page-width': `${presentation.width}px`, '--polaris-page-radius': `${presentation.radius}px` } as CSSProperties;
   const error = (id ? detail.error ?? fleet.error : fleet.error) ?? configError;
   const refreshing = configRefreshing || fleet.refreshing || detail.refreshing || compareRefreshing;
 
   if (wall && fleet.data) {
-    return <div className="polaris" style={style}><WallView servers={servers} live={live} now={now} title={siteTitle} icon={icon} updatedAt={fleet.updatedAt} onExit={() => setWall(false)} /></div>;
+    return <div className="polaris" style={style}><PageCustomization headCode={config.theme_head_code} /><WallView servers={servers} live={live} now={now} title={siteTitle} icon={icon} updatedAt={fleet.updatedAt} onExit={() => setWall(false)} /></div>;
   }
 
   return (
@@ -218,6 +219,7 @@ export function PublicServersPage({ config, configError, configRefreshing, onRef
           : <ServerList servers={servers} visible={visible} live={live} now={now} filters={filters} view={view} density={presentation.density} columns={presentation.columns}
               pins={pins} selection={selection} href={href} change={change} clear={clear} onPin={togglePin} onSelect={toggleSelect} onClearSelection={() => setSelection([])} onCompare={openCompare} searchRef={searchRef} />}
         {id ? <CompareTray servers={servers} selection={selection} onRemove={toggleSelect} onClear={() => setSelection([])} onCompare={openCompare} /> : null}
+        <PageCustomization headCode={config.theme_head_code} contentHtml={config.theme_content_html} />
       </main>
       <Footer config={{ footerText: config.config.footerText }} />
       {help ? <ShortcutsDialog onClose={() => setHelp(false)} /> : null}

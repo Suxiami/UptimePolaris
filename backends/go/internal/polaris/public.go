@@ -464,38 +464,9 @@ func (a *App) publicRoutes() {
 	a.route("GET /api/public/monitors/{num}", true, a.publicMonitorDetail)
 	a.route("GET /api/public/status/detail", true, a.publicMonitorDetail)
 	a.route("GET /api/recent/{id}", true, a.publicMonitorDetail)
-	a.route("GET /api/public/push/{token}", true, func(w http.ResponseWriter, r *http.Request) error {
-		w.Header().Set("Allow", "POST")
-		respond(w, 405, Object{"error": "method_not_allowed", "hint": "send this heartbeat with POST"})
-		return nil
-	})
-	a.route("POST /api/public/push/{token}", true, func(w http.ResponseWriter, r *http.Request) error {
-		rows, e := a.store.list(r.Context(), "monitor")
-		if e != nil {
-			return e
-		}
-		for _, m := range rows {
-			if str(m, "type") == "push" && constantEqual(str(m, "push_token"), r.PathValue("token")) {
-				status := 1
-				switch r.URL.Query().Get("status") {
-				case "0":
-					status = 0
-				case "2":
-					status = 2
-				}
-				msg := r.URL.Query().Get("msg")
-				if len(msg) > 1024 {
-					msg = msg[:1024]
-				}
-				if e = a.store.put(r.Context(), "push", str(m, "id"), Object{"ts": time.Now().Unix(), "status": status, "message": msg}); e != nil {
-					return e
-				}
-				respond(w, 200, Object{"ok": true})
-				return nil
-			}
-		}
-		return failure("unknown_token", 404)
-	})
+	a.route("GET /api/public/push/{id}", true, pushMethodNotAllowed)
+	a.route("POST /api/public/push/{id}", true, a.publicPush)
+	a.route("/api/public/push/{id}", true, pushMethodNotAllowed)
 	a.route("GET /api/public/icon", true, a.publicIcon)
 	a.route("GET /api/public/monitor-icon", true, a.monitorIcon)
 	a.route("GET /api/public/servers", true, a.publicServers)
@@ -522,14 +493,15 @@ func (a *App) publicConfig(w http.ResponseWriter, r *http.Request) error {
 	}
 	maintenance := maintenance(s)
 	notices := maintenanceNotices(s)
-	layout := "list"
-	if kind == "agent" {
-		layout = "cards"
+	view := Object{"kind": kind, "enabled": enabled, "configured": configured}
+	for _, key := range []string{"layout", "density", "columns", "width", "radius", "accent", "colorMode", "showHistory", "showLatency", "showAvailability", "showExpiry", "showCountry", "locale"} {
+		view[key] = page[key]
 	}
-	result := Object{"pageId": pageID, "pageIds": []string{pageID}, "defaultPageId": pageID, "siteMeta": meta, "pages": []Object{{"id": pageID, "siteMeta": meta}}, "isPlaceholder": false, "isEditThisPage": false, "isShowStarButton": false, "config": Object{"slug": pageID, "title": s["site.title"], "description": s["site.description"], "icon": s["site.icon"], "theme": "system", "published": true, "showTags": true, "customCSS": "", "footerText": "", "showPoweredBy": false, "googleAnalyticsId": nil, "showCertificateExpiry": true}, "publicGroupList": []any{}, "maintenanceList": notices, "maintenance": maintenance, "incidents": []any{}, "success": true, "status": "ok", "pageTabs": []any{}, "matrixStatus": "ok", "timestamp": time.Now().UnixMilli(), "presentation": Object{"kind": kind, "enabled": enabled, "configured": configured, "layout": layout, "density": "normal", "columns": 3, "width": 1440, "accent": "#6366F1", "colorMode": "system", "showHistory": true, "showLatency": true, "showAvailability": true, "showExpiry": true, "showCountry": publicPageCountry(page), "locale": "auto"}}
+	result := Object{"pageId": pageID, "pageIds": []string{pageID}, "defaultPageId": pageID, "siteMeta": meta, "pages": []Object{{"id": pageID, "siteMeta": meta}}, "isPlaceholder": false, "isEditThisPage": false, "isShowStarButton": false, "config": Object{"slug": pageID, "title": s["site.title"], "description": s["site.description"], "icon": s["site.icon"], "theme": "system", "published": true, "showTags": true, "customCSS": "", "footerText": "", "showPoweredBy": false, "googleAnalyticsId": nil, "showCertificateExpiry": page["showExpiry"]}, "publicGroupList": []any{}, "maintenanceList": notices, "maintenance": maintenance, "incidents": []any{}, "success": true, "status": "ok", "pageTabs": []any{}, "matrixStatus": "ok", "timestamp": time.Now().UnixMilli(), "presentation": view}
 	result["theme"] = nil
 	result["theme_settings"] = nil
 	result["theme_content_html"] = nil
+	result["theme_head_code"] = nil
 	if enabled && configured {
 		theme, version, definition, err := a.selectedTheme(r.Context(), kind, page)
 		if err != nil {
@@ -539,6 +511,9 @@ func (a *App) publicConfig(w http.ResponseWriter, r *http.Request) error {
 			result["theme"] = Object{"short": theme["short"], "name": definition["name"], "version": version["versionKey"]}
 			result["theme_settings"] = a.themeValues(r.Context(), definition, page)
 			result["theme_content_html"] = str(page, "contentHtml")
+		} else if page["theme"] == nil {
+			result["theme_content_html"] = str(page, "contentHtml")
+			result["theme_head_code"] = str(page, "headCode")
 		}
 	}
 	respond(w, 200, result)

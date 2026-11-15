@@ -30,8 +30,14 @@ for (const source of [sh, ps1]) {
   assert.match(source, /POLARIS_AGENT_TOKEN/);
   assert.doesNotMatch(source, /uptime-probe|uptime-polaris-agent|UPTIME_AGENT|UPTIME_ENROLLMENT/);
   assert.match(source, /sha256 mismatch/);
+  assert.match(source, /latest\/download\/manifest\.json/);
+  assert.doesNotMatch(source, /\/api\/public\/agent\/(?:manifest|capabilities|download\/polaris-agent)/);
   assert.match(source, /configuration contains unsupported fields/);
 }
+assert.ok(sh.indexOf('fetch "$MANIFEST_URL"') < sh.indexOf('fetch "$URL"'));
+assert.ok(ps1.indexOf('Invoke-RestMethod -Uri $manifestUrl') < ps1.indexOf('Invoke-WebRequest -Uri $url'));
+assert.ok(sh.includes('URL="$RELEASE_BASE/download/$RELEASE_TAG/$RELEASE_FILE"'));
+assert.ok(ps1.includes('$url = "$releaseBase/download/$($manifest.tag)/$releaseFile"'));
 assert.match(sh, /--no-register-command/);
 assert.match(ps1, /NoRegisterCommand/);
 assert.ok(ps1.includes("[string]$Endpoint = 'https://host.test'"));

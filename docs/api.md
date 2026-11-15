@@ -117,7 +117,7 @@ curl --fail-with-body 'https://status.example.com/api/public/status'
 
 `GET /api/public/monitors/:numId` 的 `ring` 是近期实际检查状态，`history` 是从 AE 读取的延迟明细。`GET /api/public/agent/detail/:numId` 的 `buckets` 和 `GET /api/public/servers/:id` 的 `history` 也来自 AE；后者仅在页面启用历史时返回历史状态。
 
-这些响应中的 `history_status` 为 `ready`、`unconfigured` 或 `unavailable`，分别表示查询成功、未配置查询凭据、暂时读取失败。`history_sampled` 表示查询结果是否包含采样；`ready` 和空数组表示查询成功但该窗口没有记录。历史读取失败不会丢弃实时数据。缺失延迟、CPU 和内存读数保持 `null`。
+这些响应中的 `history_status` 为 `ready`、`unconfigured` 或 `unavailable`，分别表示查询成功、缺少 `ANALYTICS_SQL` 绑定、暂时读取失败。`history_sampled` 表示查询结果是否包含采样；`ready` 和空数组表示查询成功但该窗口没有记录。历史读取失败不会丢弃实时数据。缺失延迟、CPU 和内存读数保持 `null`。
 
 `GET /api/admin/agents/:id/detail` 还返回 `history_daily`，用于读取已归档的资源日汇总；`history_daily_sampled` 标记其中是否含采样结果。日汇总来自业务数据库，可在 AE 查询不可用时继续读取。
 
@@ -129,9 +129,8 @@ curl --fail-with-body 'https://status.example.com/api/public/status'
 | --- | --- |
 | `GET /api/admin/presentation` | 读取生效配置 `config` 和并发控制用的 `revision` |
 | `PUT /api/admin/presentation` | 提交完整 `config` 和读取到的 `revision`，保存后立即生效 |
-| `GET /api/admin/presentation/domains?service=服务名` | Worker 查询指定服务已绑定的域名；需要 Cloudflare 凭据。Go 返回 `runtime_unsupported` |
 
-展示设置只有一份生效配置。`revision` 变了会返回 409 `presentation_conflict`，这时重新读取并合并修改。配置包含 `agentEnabled`、`workerService`、`domains` 和 `pages`；域名项为 `{ hostname, page }`，添加后立即生效，没有逐项开关。每个页面保存 `theme`、`themeOptions`，以及可选的 `headCode` 和 `contentHtml`，约束见[主题页面自定义内容](#主题页面自定义内容--theme-page-custom-content)。域名查询只读 Cloudflare 绑定，DNS 和 Worker 域名绑定要先在部署侧完成。
+展示设置只有一份生效配置。`revision` 变了会返回 409 `presentation_conflict`，这时重新读取并合并修改。配置包含 `agentEnabled`、`workerService`、`domains` 和 `pages`；域名项为 `{ hostname, page }`，添加后立即生效，没有逐项开关。每个页面保存 `theme`、`themeOptions`，以及可选的 `headCode` 和 `contentHtml`，约束见[主题页面自定义内容](#主题页面自定义内容--theme-page-custom-content)。域名映射由管理员手动填写。先在部署侧完成 DNS 配置和 Worker 或服务器的域名绑定，再保存映射。
 
 `agentEnabled` 为 `false` 时，独立页面设置和 Agent 公开控制隐藏，所有域名映射停止生效，所有域名都显示监控页。重新开启后，已保存的映射和机器公开选择恢复。
 
@@ -143,6 +142,7 @@ curl --fail-with-body 'https://status.example.com/api/public/status'
 | --- | --- |
 | `GET /api/monitors` | 管理监控列表，含管理所需配置 |
 | `POST /api/monitors` | 创建监控 |
+| `POST /api/monitors/push-credentials` | 预先生成 Push 上报凭据，不创建监控 |
 | `PUT /api/monitors/:id` | 修改监控 |
 | `DELETE /api/monitors/:id` | 删除监控及相关数据 |
 | `POST /api/monitors/:id/check` | 立即检查由当前后端直接执行的主动监控 |
@@ -200,18 +200,30 @@ Worker 上的 `udp` 和 `icmp` 必须显式选择 Agent 来源，机器要在线
 
 ## Push 接入
 
+新建表单通过 `POST /api/monitors/push-credentials` 预先获取 `id` 和 `push_token`，保存前即可查看地址、复制密钥。此接口需要管理凭据，不创建监控；保存监控后才能接收上报。
+
+创建 Push 监控时，可将返回的对象放入 `push_credentials` 字段，保存时沿用其中的 ID 和密钥。不传该字段时，由创建接口生成凭据。ID 必须为小写 UUID v4，密钥为 48 位小写十六进制字符；重复 ID 返回 409，不会覆盖已有监控。将其他类型改为 Push 时，`push_credentials.id` 使用原监控 ID。
+
+上报地址使用监控 ID，密钥通过 `Authorization: Bearer <push_token>` 发送。普通编辑保留并返回当前密钥，不接受替换凭据的 `push_credentials` 字段；改为其他监控类型会撤销密钥，切回 Push 时生成新密钥。
+
+先将密钥存入环境变量 `PUSH_TOKEN`，再用监控 ID 替换 `MONITOR_ID`：
+
 ```sh
 curl --fail-with-body -X POST \
-  'https://status.example.com/api/public/push/PUSH_TOKEN?status=1&msg=job-ok'
+  'https://status.example.com/api/public/push/MONITOR_ID' \
+  -H "Authorization: Bearer $PUSH_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"status":1,"message":"job-ok"}'
 ```
 
-- `status=0` 异常、`status=2` 警告，其他值正常。
-- `msg` 最多 200 字符，要正确做 URL 编码。
-- `ping` 只是接收到的上报元数据，UI 不会把它当成系统测得的延迟。
-- GET 返回 405，不能上报。
-- 无效 Token 返回错误，不会创建新监控。
+- `status` 仅接受 JSON 整数 `0`、`1`、`2`，分别表示故障、正常、警告。省略请求体或 `status` 时，按正常心跳处理。
+- `message` 是可选字符串，最多 200 个 Unicode 字符。无效 JSON、非法状态、超长消息及未定义字段会返回 400。
+- 成功返回 200 和 `{"ok":true}`。密钥缺失、错误，或监控不存在、已暂停、不是 Push 类型时，统一返回 401，不写入心跳。
+- 非空请求体须使用 `Content-Type: application/json`，否则返回 415；请求体最多 4096 字节，超限返回 413。
+- GET 返回 405，不记录心跳。该接口不接受 URL 查询参数，状态和说明通过 JSON 传入。
+- Push 不测量延迟。要让正常调度持续运行，才能在停报后判断超时。
 
-要定期发心跳，并让正常调度一直运行，才能在停报后判断超时。完整场景见[使用手册](usage.md#push-监控)。
+完整场景见[使用手册](usage.md#push-监控)。
 
 ## Agent 接入
 
@@ -223,6 +235,8 @@ curl --fail-with-body -X POST \
 | `/api/public/agent/manifest` | 已验证的最新 GitHub Release 清单 |
 | `/api/public/agent/download/:file` | 安装脚本，或到 GitHub Release 资产的重定向 |
 | `/api/public/agent/capabilities` | 最新 Release 的平台清单 |
+
+安装与重新安装只从站点获取脚本。脚本在目标机器上查询 GitHub 最新稳定版并下载、校验二进制，不调用站点的清单、平台或二进制下载接口。上表的发布查询接口可独立使用，不是安装的前置条件。
 
 Agent 协议用独立的机器 Token，涉及上报、WebSocket、带租约的探测任务、结果和配置交换。路径里有 `public` 不代表写操作不用认证。
 
@@ -387,11 +401,11 @@ Errors omit underlying connection details and URLs. Keep database URLs and setup
 
 `GET /api/capabilities` describes the runtime, probe types, intervals and theme storage. Public reads include `/api/public/health`, `/status`, `/status/detail`, `/config`, `/maintenance`, `/monitors`, `/monitors/:numId`, `/agent/detail/:numId`, `/servers`, `/servers/:id`, `/theme`, `/icon` and `/monitor-icon?id=:numId` under `/api/public`. Visibility and the current presentation domain restrict the objects returned; disabled machine pages return 404 for server reads. Anonymous eligible Worker responses can be cached for 15 seconds. Maintenance is `no-store`; its `source` is `manual`, `scheduled` or `null`, with UTC ISO 8601 window times.
 
-Worker history responses include `history_status` (`ready`, `unconfigured` or `unavailable`) and `history_sampled`. Monitor detail separates the exact recent check `ring` from AE latency `history`. Agent `buckets` and enabled server `history` also read from AE. A successful empty result is `ready`; failed history reads retain live data. Missing metrics remain `null`. Agent management detail additionally returns database-backed `history_daily` and `history_daily_sampled` for archived resource summaries. These fields do not change Go's database-backed history contract.
+Worker history responses include `history_status` (`ready`, `unconfigured` or `unavailable`) and `history_sampled`. Monitor detail separates the exact recent check `ring` from AE latency `history`. Agent `buckets` and enabled server `history` also read from AE. A successful empty result is `ready`. `unconfigured` means the `ANALYTICS_SQL` binding is missing, and `unavailable` means the read failed temporarily; failed history reads retain live data. Missing metrics remain `null`. Agent management detail additionally returns database-backed `history_daily` and `history_daily_sampled` for archived resource summaries. These fields do not change Go's database-backed history contract.
 
 Public heartbeat states are `0` DOWN, `1` UP, `2` WARN and `4` PENDING; missing latency is `null`. Worker supports HTTP, TCP, UDP, ICMP, Push and Agent monitors; Go also supports DNS, TLS and WebSocket. Consult capabilities for the current runtime and probe availability.
 
-`GET` and `PUT /api/admin/presentation` read and replace the presentation configuration using `revision` for concurrency. A stale revision returns 409 `presentation_conflict`. `agentEnabled` controls machine-page routing; disabling it retains saved selections. Worker can query bound domains through `GET /api/admin/presentation/domains?service=...` when Cloudflare credentials are configured; Go returns `runtime_unsupported`. Authenticated `preview=monitor` or `preview=agent` does not use shared cache. Theme installation, configuration and preview are covered in [the theme guide](themes.md#english).
+`GET` and `PUT /api/admin/presentation` read and replace the presentation configuration using `revision` for concurrency. A stale revision returns 409 `presentation_conflict`. `agentEnabled` controls machine-page routing; disabling it retains saved selections. Enter domain mappings manually after configuring DNS and binding the domain to the Worker or server. Authenticated `preview=monitor` or `preview=agent` does not use shared cache. Theme installation, configuration and preview are covered in [the theme guide](themes.md#english).
 
 ### Monitors and Push
 
@@ -399,7 +413,7 @@ Management uses `GET` and `POST /api/monitors`, `PUT` and `DELETE /api/monitors/
 
 `POST /api/monitors/visibility` accepts `{ "ids": ["UUID"], "is_public": false }` for 1–500 monitors. Any missing ID rejects the change. HTTP options can include headers, authentication, JSON matching and `check_source`. Native source types are `worker` and `server` for the respective runtime; an Agent source uses `{ "type": "agent", "agent_id": "UUID" }`. Worker UDP and ICMP require an online Agent with the relevant capability. Immediate checks reject paused, Push, Agent-host and Agent-source monitors.
 
-Send a Push heartbeat with `POST /api/public/push/:token?status=1&msg=job-ok`. Status `0` means down, `2` warning and other values up; encode `msg` and keep it within 200 characters. `ping` is supplied metadata, not measured latency. GET returns 405. Treat the URL as a secret and keep the scheduler running to detect missed heartbeats.
+Creating a Push monitor returns `id` and `push_token`; ordinary edits preserve and return the current key. Switching away from Push revokes the key, and switching back generates a new one. Send heartbeats with `POST /api/public/push/:id`, an `Authorization: Bearer <push_token>` header, and JSON such as `{"status":1,"message":"job-ok"}`. Status must be the integer `0` (down), `1` (up), or `2` (warning); omitted status or an empty body defaults to `1`. The optional `message` accepts up to 200 Unicode characters. Invalid JSON, invalid status, oversized messages, unknown fields, and URL query parameters are rejected. Success returns 200 and `{"ok":true}`. Missing or invalid keys, unknown monitors, paused monitors, and non-Push monitors return 401. Non-empty bodies require `Content-Type: application/json` (415 otherwise), with a 4096-byte limit (413 when exceeded). GET returns 405 without recording a heartbeat. Keep the key private and the scheduler running to detect missed heartbeats. Push does not measure latency.
 
 ### Agent management
 
@@ -409,7 +423,7 @@ Create a machine with `POST /api/admin/agents`; the 201 response contains `id` a
 
 `POST /api/admin/agents/:id/commands` accepts `{ "action": "re_report" }`; supported actions are `re_report`, `check_update`, `restart` and `upgrade`. Worker returns 202 and Go 200 when queued. Query `GET /api/admin/agents/:id/commands` for the outcome. Batch requests use `ids` and `action`; inspect each result. The Worker limit is 100 deduplicated IDs and the Go limit is 500. The feature switch, Agent capability and online status gate commands; the Agent also checks whether restart or upgrade is safe. Installation, rollback and configuration details are in [the Agent guide](agents.md#agent-guide).
 
-Agent installation and release reads use `/install.sh`, `/install.ps1`, `/api/public/agent/manifest`, `/api/public/agent/download/:file` and `/api/public/agent/capabilities`. Agent reporting, jobs and configuration use a machine token even though their paths contain `public`; never log those URLs. Agent groups and tags are separate from monitor groups and tags. Unified group management is under `/api/admin/groups`; destructive membership changes require `confirm_membership_reset: true`.
+Agent installation starts at `/install.sh` or `/install.ps1`; the script queries GitHub and downloads the latest stable binary on the target machine. The separate `/api/public/agent/manifest`, `/api/public/agent/download/:file` and `/api/public/agent/capabilities` release endpoints are not prerequisites for installation or reinstallation. Agent reporting, jobs and configuration use a machine token even though their paths contain `public`; never log those URLs. Agent groups and tags are separate from monitor groups and tags. Unified group management is under `/api/admin/groups`; destructive membership changes require `confirm_membership_reset: true`.
 
 ### Notifications and operations
 
@@ -421,6 +435,6 @@ Errors normally contain an `error` code. Handle 400 by correcting the input, 401
 
 ### 主题页面自定义内容 / Theme page custom content
 
-管理员通过 `GET /api/admin/presentation` 和 `PUT /api/admin/presentation` 读取和保存完整配置与 `revision`。各页面的 `headCode`（最多 16 KiB UTF-8）原样插入公开主题和预览的 head；`contentHtml`（最多 32 KiB UTF-8）通过公开配置的 `theme_content_html` 提供，由主题自行渲染。仅限当前页面和已应用的精确主题版本，切换或删除主题时清空。代码和内容对访客公开，代码可在本站执行，请勿填写凭据，仅使用可信代码。
+管理员通过 `GET /api/admin/presentation` 和 `PUT /api/admin/presentation` 读取和保存完整配置与 `revision`。各页面的 `headCode`（最多 16 KiB UTF-8）插入公开页面的 head；内置页面通过公开配置的 `theme_head_code` 读取，安装主题由服务端注入入口 HTML。`contentHtml`（最多 32 KiB UTF-8）通过 `theme_content_html` 提供，内置页面显示在正文下方，安装主题由内容插槽渲染。`theme: null` 使用内置主题，`themeOptions` 支持强调色、圆角、宽度、布局等选项，详见[主题指南](themes.md#配置选项)。配置属于当前页面和主题版本，手动切换或删除主题时清空；更新同一主题包会将页面切换至新版，并保留仍有效的选项、头部代码和自定义 HTML。代码和内容对访客公开，代码可在本站执行，请勿填写凭据，仅使用可信代码。
 
-Authenticated administrators use `GET /api/admin/presentation` and `PUT /api/admin/presentation` with the complete configuration and `revision`. Per-page `headCode` (16 KiB UTF-8 maximum) is inserted verbatim into the public theme and preview head; `contentHtml` (32 KiB UTF-8 maximum) is exposed as `theme_content_html` for the theme to render. Values belong to the exact applied page and theme version and are cleared on switching or deletion. Both are public; code can execute on the site. Never include credentials and use trusted code only.
+Authenticated administrators use `GET /api/admin/presentation` and `PUT /api/admin/presentation` with the complete configuration and `revision`. Per-page `headCode` (16 KiB UTF-8 maximum) is inserted into the public page head. Built-in pages read it from `theme_head_code`; installed themes receive it in their entry HTML. `contentHtml` (32 KiB UTF-8 maximum) is exposed as `theme_content_html`, rendered below the main content on built-in pages or in the installed theme’s content slot. `theme: null` selects the built-in theme, with `themeOptions` for accent color, radius, width, layout and other options described in the [theme guide](themes.md#english). Values belong to the exact applied page and theme version and are cleared on switching or deletion. Both are public; code can execute on the site. Never include credentials and use trusted code only.

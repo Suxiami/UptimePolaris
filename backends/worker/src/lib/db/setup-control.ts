@@ -133,9 +133,13 @@ export async function setupDatabaseOptions(env: Env): Promise<SetupDatabaseOptio
   const row = await databaseControlRow(env);
   const locked = row?.phase === 'pending' && row.account_started === 1;
   const saved = await readDatabaseConfiguration(env);
+  const type = databaseType(env);
+  const types: DatabaseType[] = locked ? [type] : env.DB ? ['d1', 'postgres'] : ['postgres'];
   return {
-    types: locked ? [databaseType(env)] : env.DB ? ['d1', 'postgres'] : ['postgres'],
-    defaultType: databaseType(env),
+    types,
+    // 显式 DATABASE_TYPE 与可选类型冲突时退回第一个选项，避免表单默认值不可用。
+    // Fall back to a member of `types` when an explicit DATABASE_TYPE is unavailable.
+    defaultType: types.includes(type) ? type : types[0],
     postgresConfigured: databaseType(env) === 'postgres' && Boolean(env.DATABASE_URL),
     postgresUrlEditable: Boolean(env.CONFIG) && !locked,
     ...(saved ? { configurationId: saved.id } : {}),

@@ -6,7 +6,7 @@ export interface InstallCommandOptions {
   operation?: 'install' | 'reinstall';
   detectPlatform?: boolean;
   registerCommand?: boolean;
-  platformKey: string;
+  platformKey?: string;
   endpoint: string;
   token: string;
   mode: InstallMode;
@@ -63,7 +63,7 @@ export function safeInstallCommand(
   try {
     const modes = installModesForPlatform(platform);
     if (!modes.includes(options.mode)) throw new Error(`mode ${options.mode} is unavailable for ${platform}`);
-    if (!options.platformKey.startsWith(`${platform}-`)) throw new Error(`build ${options.platformKey} does not match ${platform}`);
+    if (!options.detectPlatform && !options.platformKey?.startsWith(`${platform}-`)) throw new Error(`build ${options.platformKey} does not match ${platform}`);
     if (platform !== 'windows' && options.installDir &&
         (!options.installDir.startsWith('/') || !/^\/[A-Za-z0-9._/ -]+$/.test(options.installDir))) {
       throw new Error('POSIX install path must be absolute and contain only letters, digits, spaces, ".", "_", "-", or "/"');
@@ -81,7 +81,7 @@ export function safeInstallCommand(
 
 /** 按目标 shell 引用参数并生成安装或重装命令。 / Quote arguments for the target shell and generate an install or reinstall command. */
 export function buildInstallCommand(options: InstallCommandOptions, platform: 'posix' | 'windows'): string {
-  if (!options.endpoint || !options.token || !options.platformKey) throw new Error('platform, endpoint, and an Agent token are required');
+  if (!options.endpoint || !options.token || (!options.detectPlatform && !options.platformKey)) throw new Error('platform, endpoint, and an Agent token are required');
   if (!/^[A-Za-z0-9_.@-]+$/.test(options.serviceName ?? 'polaris-agent')) throw new Error('invalid service name');
   if (!Number.isInteger(options.sampleInterval) || options.sampleInterval < 1 ||
       !Number.isInteger(options.reportInterval) || options.reportInterval > 1800 ||
@@ -92,7 +92,7 @@ export function buildInstallCommand(options: InstallCommandOptions, platform: 'p
   const origin = new URL(scriptUrl).origin;
   const values: Array<[string, string]> = [
     ['endpoint', reinstall ? origin : ''],
-    ['platform', options.detectPlatform ? '' : options.platformKey],
+    ['platform', options.detectPlatform ? '' : options.platformKey!],
     ['mode', options.mode],
     ['sample-interval', reinstall || options.sampleInterval !== 5 ? String(options.sampleInterval) : ''],
     ['report-interval', reinstall || options.reportInterval !== 60 ? String(options.reportInterval) : ''],

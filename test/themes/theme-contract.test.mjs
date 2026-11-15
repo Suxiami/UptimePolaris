@@ -220,7 +220,8 @@ try {
   assert.notEqual(sameVersion.versionKey, firstInstall.versionKey);
   const updateCheck = await json(await req('/__fixture/update-check?version=1.2.3&digest=' + firstInstall.digest, { method: 'POST', body: makePackage('1.2.3', 'second') }));
   assert.equal(updateCheck.available, true);
-  assert.match(await (await req('/')).text(), /first/);
+  assert.match(await (await req('/')).text(), /second/);
+  assert.match(await (await mf.dispatchFetch('http://agent.test/')).text(), /agent-second/);
   await select(pick(sameVersion.versionKey,'monitor'),pick(firstInstall.versionKey,'agent'));
   assert.match(await (await req('/')).text(), /second/);
   assert.match(await (await mf.dispatchFetch('http://agent.test/')).text(), /agent-first/);
@@ -230,7 +231,7 @@ try {
   assert.equal((await json(conflict)).error, 'theme_id_short_conflict');
   assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM theme_versions WHERE id='different-id'").first()).count, 0);
   const themeList = await json(await req('/api/themes', { headers: authHeaders }));
-  assert.equal(themeList.themes[0].versions.length, 2);
+  assert.equal(themeList.themes[0].versions.length, 1);
   assert.deepEqual(themeList.themes[0].versions[0].themes.map(item => item.target).sort(), ['agent','monitor']);
   const bucket = await mf.getR2Bucket('THEMES');
   await bucket.delete(sameVersion.prefix + '/dist/index.html');

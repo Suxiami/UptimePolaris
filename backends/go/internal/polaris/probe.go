@@ -44,6 +44,9 @@ func options(m Object) Object {
 	return o
 }
 func checkSource(m Object) (string, string) {
+	if str(m, "type") == "push" || str(m, "type") == "agent" {
+		return "server", ""
+	}
 	source := object(options(m)["check_source"])
 	if str(source, "type") == "agent" {
 		return "agent", str(source, "agent_id")

@@ -11,6 +11,7 @@ import { build } from 'esbuild';
 
 const bundle = await build({ stdin: { contents: "export { installSh, installPs1 } from './backends/worker/src/lib/agent/install-script.ts';", resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', write: false });
 const { installSh, installPs1 } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { repository } = JSON.parse(readFileSync(new URL('../../shared/agent-release-repository.json', import.meta.url), 'utf8'));
 const tempParent = realpathSync.native(tmpdir());
 const temp = realpathSync.native(mkdtempSync(join(tempParent, 'polaris-installer-execution-')));
 const tempRelative = relative(tempParent, temp);
@@ -26,6 +27,13 @@ function requireSuccess(result) {
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
+}
+
+function releaseManifest(key, binary, hash = sha256(binary)) {
+  return {
+    repository, tag: 'v0.2.0', version: '0.2.0',
+    platforms: [{ key, file: `polaris-agent-0.2.0-${key}${key.startsWith('windows-') ? '.exe' : ''}`, version: '0.2.0', size: binary.length, sha256: hash }],
+  };
 }
 
 // Model only Compose's $VAR, ${VAR} and $$ interpolation to check literal path escaping.
@@ -106,8 +114,8 @@ curl() {
   fi
   [ "$#" -eq 4 ] && [ "$1" = -fsSL ] && [ "$3" = -o ] || return 2
   case "$2" in
-    https://host.test/api/public/agent/download/polaris-agent-linux-x86_64) cp "$FIXTURE_BINARY" "$4" ;;
-    https://host.test/api/public/agent/manifest) cp "$FIXTURE_MANIFEST" "$4" ;;
+    https://github.com/${repository}/releases/download/v0.2.0/polaris-agent-0.2.0-linux-x86_64) cp "$FIXTURE_BINARY" "$4" ;;
+    https://github.com/${repository}/releases/latest/download/manifest.json) cp "$FIXTURE_MANIFEST" "$4" ;;
     *) return 2 ;;
   esac
 }
@@ -208,7 +216,7 @@ if [ "\${FIXTURE_UNINSTALL:-0}" = 1 ]; then set -- "$@" --uninstall; fi
       writeFileSync(join(cfgDir, 'config.json'), JSON.stringify({ endpoint: 'https://new.test', token: 'new-token' }));
       if (name === 'recovery-after-both') writeFileSync(join(binDir, 'polaris-agent'), agent);
     }
-    writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'linux-x86_64', sha256: validHash ? sha256(agent) : '0'.repeat(64) }] }));
+    writeFileSync(manifest, JSON.stringify(releaseManifest('linux-x86_64', agent, validHash ? sha256(agent) : '0'.repeat(64))));
     assertFixtureDirectory(fixture);
     assertFixtureDirectory(install);
     const env = { ...process.env, HOME: `${shellRoot}/${name}`, XDG_CONFIG_HOME: `${shellRoot}/${name}/xdg`, TEMP: fixture, TMP: fixture, TMPDIR: `${shellRoot}/${name}`, FIXTURE_TMP: `${shellRoot}/${name}`, FIXTURE_INSTALL: `${shellRoot}/${name}/install`, FIXTURE_BINARY: `${shellRoot}/fixture-agent`, FIXTURE_MANIFEST: `${shellRoot}/manifest.json`, FIXTURE_INSTALLER: `${shellRoot}/install.sh`, FIXTURE_AGENT_LOG: `${shellRoot}/${name}/agent.log`, FIXTURE_SERVICE_LOG: `${shellRoot}/${name}/services.log`, FIXTURE_FAIL_BINARY_MOVE: name === 'binary-move-failure' ? '1' : '0', FIXTURE_FAIL_BACKUP: name === 'backup-failure' ? '1' : '0', FIXTURE_CHECK_RECOVERY: recovery ? '1' : '0', FIXTURE_OLD_CONFIG: `${shellRoot}/${name}/expected-config`, FIXTURE_OLD_BINARY: `${shellRoot}/${name}/expected-binary` };
@@ -274,7 +282,7 @@ if [ "\${FIXTURE_UNINSTALL:-0}" = 1 ]; then set -- "$@" --uninstall; fi
     writeFileSync(join(binDir, 'polaris-agent'), oldBinary);
     writeFileSync(join(cfgDir, 'config.json'), oldConfig);
     writeFileSync(join(cfgDir, '.polaris-agent-managed'), `fixture-agent:${shellRoot}/${name}/install\n`);
-    writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'linux-x86_64', sha256: sha256(agent) }] }));
+    writeFileSync(manifest, JSON.stringify(releaseManifest('linux-x86_64', agent)));
     const env = { ...process.env, HOME: `${shellRoot}/${name}`, XDG_CONFIG_HOME: `${shellRoot}/${name}/xdg`, TEMP: fixture, TMP: fixture, TMPDIR: `${shellRoot}/${name}`, FIXTURE_TMP: `${shellRoot}/${name}`, FIXTURE_INSTALL: `${shellRoot}/${name}/install`, FIXTURE_BINARY: `${shellRoot}/fixture-agent`, FIXTURE_MANIFEST: `${shellRoot}/manifest.json`, FIXTURE_INSTALLER: `${shellRoot}/install.sh`, FIXTURE_AGENT_LOG: `${shellRoot}/${name}/agent.log`, FIXTURE_SERVICE_LOG: `${shellRoot}/${name}/services.log`, FIXTURE_PAUSE_AFTER_CONFIG: '1', FIXTURE_READY: `${shellRoot}/${name}/ready`, FIXTURE_RELEASE: `${shellRoot}/${name}/release` };
     const first = spawn('sh', [wrapper], { env, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
@@ -328,7 +336,7 @@ if [ "\${FIXTURE_UNINSTALL:-0}" = 1 ]; then set -- "$@" --uninstall; fi
     writeFileSync(join(transaction, 'binary'), oldBinary);
     writeFileSync(join(transaction, 'config'), oldConfig);
     writeFileSync(join(transaction, 'active'), 'present:present\n');
-    writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'linux-x86_64', sha256: sha256(agent) }] }));
+    writeFileSync(manifest, JSON.stringify(releaseManifest('linux-x86_64', agent)));
     const env = { ...process.env, HOME: `${shellRoot}/${name}`, XDG_CONFIG_HOME: `${shellRoot}/${name}/xdg`, TEMP: fixture, TMP: fixture, TMPDIR: `${shellRoot}/${name}`, FIXTURE_TMP: `${shellRoot}/${name}`, FIXTURE_INSTALL: `${shellRoot}/${name}/install`, FIXTURE_BINARY: `${shellRoot}/fixture-agent`, FIXTURE_MANIFEST: `${shellRoot}/manifest.json`, FIXTURE_INSTALLER: `${shellRoot}/install.sh`, FIXTURE_AGENT_LOG: `${shellRoot}/${name}/agent.log`, FIXTURE_SERVICE_LOG: `${shellRoot}/${name}/services.log` };
     const refused = run('sh', [wrapper], { env: { ...env, FIXTURE_UNINSTALL: '1' } });
     assert.notEqual(refused.status, 0);
@@ -378,7 +386,7 @@ if [ "\${FIXTURE_UNINSTALL:-0}" = 1 ]; then set -- "$@" --uninstall; fi
       assert.equal(existsSync(join(binDir, 'polaris-agent')), false);
       assert.equal(existsSync(join(cfgDir, 'config.json')), false);
       assert.equal(existsSync(transaction), false);
-      writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'linux-x86_64', sha256: sha256(agent) }] }));
+      writeFileSync(manifest, JSON.stringify(releaseManifest('linux-x86_64', agent)));
       const retry = run('sh', [wrapper], { env: { ...env, FIXTURE_CHECK_ABSENT: '0' } });
       requireSuccess(retry);
       assert.deepEqual(readFileSync(join(binDir, 'polaris-agent')), agent);
@@ -393,7 +401,7 @@ if [ "\${FIXTURE_UNINSTALL:-0}" = 1 ]; then set -- "$@" --uninstall; fi
   const complexHomePosix = `${shellRoot}/${complexName}`;
   mkdirSync(complexHome);
   assertFixtureDirectory(complexHome);
-  writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'linux-x86_64', sha256: sha256(agent) }] }));
+  writeFileSync(manifest, JSON.stringify(releaseManifest('linux-x86_64', agent)));
   const complexEnv = { ...process.env, HOME: complexHomePosix, XDG_CONFIG_HOME: `${complexHomePosix}/.config`, TEMP: complexHome, TMP: complexHome, TMPDIR: complexHomePosix, FIXTURE_TMP: complexHomePosix, FIXTURE_BINARY: `${shellRoot}/fixture-agent`, FIXTURE_MANIFEST: `${shellRoot}/manifest.json`, FIXTURE_INSTALLER: `${shellRoot}/install.sh`, FIXTURE_AGENT_LOG: `${shellRoot}/complex-agent.log`, FIXTURE_SERVICE_LOG: `${shellRoot}/complex-services.log`, FIXTURE_INJECT: 'incorrectly-expanded' };
   delete complexEnv.FIXTURE_INSTALL;
   const complex = run('sh', [wrapper], { env: complexEnv });
@@ -439,13 +447,13 @@ public static class FixtureAgent {
 $ErrorActionPreference = 'Stop'
 function Invoke-WebRequest {
   param($Uri, $OutFile, [switch]$UseBasicParsing)
-  if ($Uri -ne 'https://host.test/api/public/agent/download/polaris-agent-windows-x86_64.exe') { throw 'unexpected download URL' }
+  if ($Uri -ne 'https://github.com/${repository}/releases/download/v0.2.0/polaris-agent-0.2.0-windows-x86_64.exe') { throw 'unexpected download URL' }
   if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($OutFile)) -ne [IO.Path]::GetFullPath($env:FIXTURE_INSTALL)) { throw 'download escaped fixture directory' }
   Copy-Item -LiteralPath $env:FIXTURE_BINARY -Destination $OutFile
 }
 function Invoke-RestMethod {
   param($Uri, [switch]$UseBasicParsing, $TimeoutSec)
-  if ($Uri -ne 'https://host.test/api/public/agent/manifest') { throw 'unexpected manifest URL' }
+  if ($Uri -ne 'https://github.com/${repository}/releases/latest/download/manifest.json') { throw 'unexpected manifest URL' }
   Get-Content -LiteralPath $env:FIXTURE_MANIFEST -Raw | ConvertFrom-Json
 }
 function Get-ScheduledTask { param($TaskName) if ($TaskName -ne 'fixture-agent') { throw 'unexpected task lookup' }; return $null }
@@ -510,7 +518,7 @@ exit $LASTEXITCODE
     writeFileSync(cfg, oldConfig);
     writeFileSync(join(cfgDir, '.polaris-agent-managed'), `fixture-agent|${dest}`);
     const manifest = join(fixture, 'manifest.json');
-    writeFileSync(manifest, JSON.stringify({ platforms: [{ key: 'windows-x86_64', sha256: validHash ? sha256(agent) : '0'.repeat(64) }] }));
+    writeFileSync(manifest, JSON.stringify(releaseManifest('windows-x86_64', agent, validHash ? sha256(agent) : '0'.repeat(64))));
     assertFixtureDirectory(install);
     const env = { ...windowsFixtureEnvironment(fixture, local, fixture), PROCESSOR_ARCHITECTURE: 'AMD64', FIXTURE_INSTALL: install, FIXTURE_BINARY: binary, FIXTURE_MANIFEST: manifest, FIXTURE_INSTALLER: installer, FIXTURE_AGENT_LOG: join(fixture, 'agent.log'), FIXTURE_SERVICE_LOG: join(fixture, 'services.log'), FIXTURE_FAIL_ACL: scenario === 'acl-failure' ? '1' : '0' };
     delete env.PROCESSOR_ARCHITEW6432;
