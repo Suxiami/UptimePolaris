@@ -39,19 +39,18 @@ Agent 探测支持 HTTP、TCP、SSL、域名到期和 DNS。SSL 每个 UTC 日�
 Linux / macOS 的默认系统安装形式：
 
 ```sh
-(installer=$(curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh') && POLARIS_AGENT_TOKEN='TOKEN' sh -c "$installer" -- --endpoint 'https://status.example.com' --mode 'system')
+curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' | sh -s -- --endpoint 'https://status.example.com' --token 'TOKEN' --mode 'system'
 ```
 
-Windows PowerShell 也可以下载脚本后执行：
+Windows PowerShell：
 
 ```powershell
-Invoke-WebRequest 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -OutFile install.ps1
-& .\install.ps1 -Endpoint 'https://status.example.com' -Token 'TOKEN' -Mode 'system'
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1'))) -Endpoint 'https://status.example.com' -Token 'TOKEN'
 ```
 
-把站点和 Token 换成控制台给出的实际值。安装和重新安装都先从 Agent 仓库完整下载脚本，再由脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。Windows 引导脚本会暂存执行脚本，结束后清理临时文件并恢复凭据环境变量。
+把站点和 Token 换成控制台给出的实际值。安装和重新安装都直接向脚本传参。脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。
 
-安装命令含机器凭据，会留在终端历史或复制记录里。不要把它发到公共讨论或截图。每台机器用独立 Token。下载失败时，检查目标机器的 GitHub 连接和对应平台的发布文件，见[部署指南](deployment.md#agent-下载)。
+安装命令含机器凭据，会留在终端历史或复制记录里，也可能出现在进程参数中。不要把它发到公共讨论或截图。每台机器用独立 Token。下载失败时，检查目标机器的 GitHub 连接和对应平台的发布文件，见[部署指南](deployment.md#agent-下载)。
 
 ## 安装模式与平台
 
@@ -255,7 +254,7 @@ Agent 启动时通过真实网卡出口发现公网 IP，再按这个 IP 查询�
 2. Run it with the permissions required by that mode. Each machine has its own token; keep installation commands and configuration private.
 3. Run `pa status` and confirm the first report in the console. Create a separate Agent-type monitor if online status and resource alerts are needed.
 
-For installation and reinstallation, the command downloads the script from the Agent GitHub repository and passes the site endpoint as an argument. The script detects the OS and architecture, reads the latest stable GitHub Release manifest, then downloads the matching version and verifies its size and SHA-256. No backend release lookup is required. The machine token is not sent to GitHub.
+For installation and reinstallation, the command downloads the script from the Agent GitHub repository and passes the site endpoint and token directly as arguments. The script detects the OS and architecture, reads the latest stable GitHub Release manifest, then downloads the matching version and verifies its size and SHA-256. The token is not sent to GitHub, but can appear in shell history and process arguments. Keep the command private.
 
 System mode is available on Linux, macOS and Windows. User mode depends on the platform's service manager; POSIX user services currently require Linux `systemd --user`. Manual mode prepares files for foreground operation. Linux Docker mode uses Compose; its default system view is the container view unless host resources are explicitly mounted and permitted.
 

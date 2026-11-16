@@ -9,10 +9,10 @@ const input = {
   mode: 'user' as const, sampleInterval: 5, reportInterval: 60,
 };
 const posix = buildInstallCommand(input, 'posix');
-assert.ok(posix.includes("installer=$(curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh')"));
-assert.match(posix, /POLARIS_AGENT_TOKEN='tok'\\''en;\$\(whoami\)'/);
-assert.match(posix, /sh -c "\$installer" -- --endpoint 'https:\/\/host.test' --platform 'linux-x86_64' --mode 'user'/);
-assert.doesNotMatch(posix, /\|\s*sh|--token\b|--sample-interval|--report-interval|mktemp/);
+assert.ok(posix.startsWith("curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' | sh -s -- "));
+assert.match(posix, /--token 'tok'\\''en;\$\(whoami\)'/);
+assert.match(posix, /--platform 'linux-x86_64' --mode 'user'/);
+assert.doesNotMatch(posix, /--sample-interval|--report-interval|mktemp|installer=|POLARIS_AGENT_TOKEN|sh -c/);
 const auto = buildInstallCommand({ ...input, detectPlatform: true, registerCommand: false }, 'posix');
 assert.doesNotMatch(auto, /--platform/);
 assert.match(auto, /--no-register-command/);
@@ -25,15 +25,18 @@ const custom = buildInstallCommand({ ...input, installDir: "/opt/O'Brien agent",
 assert.match(custom, /'\/opt\/O'\\''Brien agent'/);
 assert.match(custom, /--service-name 'polaris.user'/);
 const windows = buildInstallCommand({ ...input, platformKey: 'windows-x86_64', registerCommand: false }, 'windows');
-assert.ok(windows.includes("Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -ErrorAction Stop"));
-assert.match(windows, /-endpoint 'https:\/\/host.test'/);
+assert.ok(windows.startsWith("& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1'))) "));
+assert.match(windows, /-Endpoint 'https:\/\/host.test'/);
+assert.match(windows, /-Token /);
 assert.match(windows, /'tok''en;\$\(whoami\)'/);
 assert.match(windows, /-NoRegisterCommand/);
 const windowsUpdate = safeInstallCommand({ ...input, platformKey: 'windows-x86_64', autoUpdate: true }, 'windows');
 assert.equal(windowsUpdate.error, null);
 assert.match(windowsUpdate.command!, /-AutoUpdate/);
 assert.match(buildInstallCommand({ ...input, platformKey: 'windows-x86_64', operation: 'reinstall', autoUpdate: false }, 'windows'), /-DisableAutoUpdate/);
-assert.doesNotMatch(windows, /-Token\s|\?token|scriptblock/);
+assert.doesNotMatch(windows, /\?token|\$env:|\$previous|\$installer|Join-Path|WriteAllText|try\s*\{|throw|finally/);
+const defaultWindows = buildInstallCommand({ ...input, detectPlatform: true, mode: 'system' }, 'windows');
+assert.doesNotMatch(defaultWindows, /-Mode|-Platform|-SampleInterval|-ReportInterval/);
 
 for (const origin of ['https://status.customer.example', 'https://monitor.example:9443', 'http://127.0.0.1:3884']) {
   for (const platform of ['linux', 'darwin', 'windows'] as const) {

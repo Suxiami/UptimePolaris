@@ -46,10 +46,6 @@ export function agentInstallScriptUrl(platform: InstallPlatform | 'posix'): stri
   return `https://raw.githubusercontent.com/${source.repository}/main/${file}`;
 }
 
-function powershellInstallerBody(scriptUrl: string, credential: string, args: string): string {
-  return `$previous = $env:POLARIS_AGENT_TOKEN; $installer = Join-Path ([IO.Path]::GetTempPath()) ('polaris-agent-' + [Guid]::NewGuid() + '.ps1'); try { [IO.File]::WriteAllText($installer, (Invoke-RestMethod -Uri ${powershellQuote(scriptUrl)} -ErrorAction Stop).TrimStart([char]0xFEFF), [Text.UTF8Encoding]::new($true)); $env:POLARIS_AGENT_TOKEN=${credential}; & $installer ${args}; if ($LASTEXITCODE -ne 0) { throw 'Agent installation failed' } } finally { $env:POLARIS_AGENT_TOKEN=$previous; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue }`;
-}
-
 /** 检查平台与安装模式后生成命令，失败时返回错误文本。 / Validate the platform and install mode, then generate a command or return an error. */
 export function safeInstallCommand(
   options: InstallCommandOptions,
@@ -89,8 +85,9 @@ export function buildInstallCommand(options: InstallCommandOptions, platform: 'p
   const origin = endpoint.origin;
   const values: Array<[string, string]> = [
     ['endpoint', origin],
+    ['token', options.token],
     ['platform', options.detectPlatform ? '' : options.platformKey!],
-    ['mode', options.mode],
+    ['mode', platform === 'windows' && options.mode === 'system' ? '' : options.mode],
     ['sample-interval', reinstall || options.sampleInterval !== 5 ? String(options.sampleInterval) : ''],
     ['report-interval', reinstall || options.reportInterval !== 60 ? String(options.reportInterval) : ''],
     ['include-nics', options.includeNics ?? ''], ['exclude-nics', options.excludeNics ?? ''],
@@ -100,18 +97,16 @@ export function buildInstallCommand(options: InstallCommandOptions, platform: 'p
   ];
   const pairs = values.filter(([, value]) => value !== '');
   const update = options.autoUpdate === true ? true : reinstall && options.autoUpdate === false ? false : undefined;
-  const envName = 'POLARIS_AGENT_TOKEN';
-  const credential = options.token;
   if (platform === 'posix') {
     const args = pairs.map(([key, value]) => `--${key} ${shellQuote(value)}`).join(' ');
     const flags = (update === true ? ' --auto-update' : update === false ? ' --disable-auto-update' : '') +
       (options.registerCommand === false ? ' --no-register-command' : '');
-    return `(installer=$(curl -fsSL ${shellQuote(scriptUrl)}) && ${envName}=${shellQuote(credential)} sh -c "$installer" -- ${args}${flags})`;
+    return `curl -fsSL ${shellQuote(scriptUrl)} | sh -s -- ${args}${flags}`;
   }
-  const args = pairs.map(([key, value]) => `-${key.replace(/-([a-z])/g, (_, character: string) => character.toUpperCase())} ${powershellQuote(value)}`).join(' ');
+  const args = pairs.map(([key, value]) => `-${key.replace(/(^|-)([a-z])/g, (_, _prefix: string, character: string) => character.toUpperCase())} ${powershellQuote(value)}`).join(' ');
   const flags = (update === true ? ' -AutoUpdate' : update === false ? ' -DisableAutoUpdate' : '') +
     (options.registerCommand === false ? ' -NoRegisterCommand' : '');
-  return powershellInstallerBody(scriptUrl, powershellQuote(credential), `${args}${flags}`);
+  return `& ([scriptblock]::Create((irm ${powershellQuote(scriptUrl)}))) ${args}${flags}`;
 }
 
 export interface AgentBuild { key: string; version: string; }
