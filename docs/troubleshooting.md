@@ -118,9 +118,7 @@ pa command status
 
 ## 安装脚本返回 HTML 或下载失败
 
-确认访问的是 `/install.sh` 或 `/install.ps1`，并且当前前端把它们代理到了正确的 Worker。生产资产配置要让这些入口先进入 Worker，不能统一回退成 `index.html`。
-
-Windows 引导脚本还要访问 `/api/public/agent/download/install.ps1`；下载失败时检查这个路径通不通。
+安装命令直接从 Agent 的 GitHub 仓库下载脚本。下载到 HTML 时，检查目标机器能否访问 `raw.githubusercontent.com`，以及网络代理是否返回了拦截或登录页面。重新复制控制台生成的命令，不要将站点域名当作脚本下载地址。
 
 脚本启动后会从目标机器直接访问 GitHub。提示无法读取发布清单或下载失败时，检查这台机器能否访问 GitHub Release，以及最新稳定版是否包含 `manifest.json` 和对应平台的文件。文件大小或 SHA-256 不匹配时，脚本会停止安装。站点的版本查询失败不会阻止生成安装命令。下载条件见[部署指南](deployment.md#agent-下载)。
 
@@ -191,7 +189,7 @@ If Worker setup was interrupted and the database choice is locked, resubmit the 
 - For an Agent, inspect `pa status`, `pa logs -n 200`, and `pa command status`. Check its endpoint, token, connection, reporting interval, permissions, and whether multiple instances share the same token. A domain change does not update installed Agents; update their endpoint and restart them.
 - If `pa` is missing, reopen the terminal or use the installed binary path. `command register` can register the command without overwriting an existing program. Service controls depend on installation mode and permissions.
 - For queued or rejected remote commands, check `security.allowAgentCommands`, connectivity, capabilities, and the service tier. Restart and upgrade need a managed tier A installation; Docker does not support in-place upgrade. Read the receipt and Agent logs.
-- If an installer returns HTML, verify that the proxy routes `/install.sh`, `/install.ps1`, and `/api/public/agent/download/install.ps1` to the backend. Once started, the script accesses GitHub directly from the target machine. For manifest or download failures, check that machine’s connection to GitHub Release downloads and confirm the latest stable release has `manifest.json` and the platform asset. Size or SHA-256 mismatches stop installation. Backend release lookup failures do not block command generation. See [deployment](deployment.md#agent-downloads).
+- If an installer returns HTML, check the target machine’s access to `raw.githubusercontent.com` and whether a network proxy is returning an interception or login page. Copy the current console command; the script is downloaded from the Agent GitHub repository, not the site. Once started, the script accesses GitHub directly from the target machine. For manifest or download failures, check that machine’s connection to GitHub Release downloads and confirm the latest stable release has `manifest.json` and the platform asset. Size or SHA-256 mismatches stop installation. Backend release lookup failures do not block command generation. See [deployment](deployment.md#agent-downloads).
 
 ### Notifications, presentation, and themes
 

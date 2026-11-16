@@ -34,21 +34,22 @@
 
 Agent 探测支持 HTTP、TCP、SSL、域名到期和 DNS。SSL 每个 UTC 日通过真实握手读取目标证书，并验证信任链和主机名；到期或验证失败会显示警告。DNS 支持 A、AAAA、CNAME、MX、TXT、NS 和期望值匹配。域名到期从域名注册服务查询；没有公开到期日时显示未知。附加检查和主检查并行，主检查延迟不包含附加检查的等待时间。
 
-页面只展示短安装命令。脚本地址和服务地址由当前访问的 origin 生成，协议、域名和端口都会保留，所以请在正式域名下取命令。
+页面生成的安装命令从 Agent 的 GitHub 仓库下载脚本，并通过参数传入站点地址。站点地址保留当前访问的协议、域名和端口，请在正式域名下生成命令。
 
 Linux / macOS 的默认系统安装形式：
 
 ```sh
-(installer=$(curl -fsSL 'https://status.example.com/install.sh') && POLARIS_AGENT_TOKEN='TOKEN' sh -c "$installer" -- --mode 'system')
+(installer=$(curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh') && POLARIS_AGENT_TOKEN='TOKEN' sh -c "$installer" -- --endpoint 'https://status.example.com' --mode 'system')
 ```
 
-Windows PowerShell 的默认形式：
+Windows PowerShell 也可以下载脚本后执行：
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://status.example.com/install.ps1' -ErrorAction Stop))) 'TOKEN' -mode 'system'
+Invoke-WebRequest 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -OutFile install.ps1
+& .\install.ps1 -Endpoint 'https://status.example.com' -Token 'TOKEN' -Mode 'system'
 ```
 
-把站点和 Token 换成控制台给出的实际值。安装和重新安装都先完整下载站点脚本，再由脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。Windows 引导脚本会暂存执行脚本，结束后清理临时文件并恢复凭据环境变量。
+把站点和 Token 换成控制台给出的实际值。安装和重新安装都先从 Agent 仓库完整下载脚本，再由脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。Windows 引导脚本会暂存执行脚本，结束后清理临时文件并恢复凭据环境变量。
 
 安装命令含机器凭据，会留在终端历史或复制记录里。不要把它发到公共讨论或截图。每台机器用独立 Token。下载失败时，检查目标机器的 GitHub 连接和对应平台的发布文件，见[部署指南](deployment.md#agent-下载)。
 
@@ -210,17 +211,17 @@ POSIX 安装脚本重新安装时，会在替换配置和程序前保存私有�
 
 ## 卸载
 
-卸载由安装脚本执行，没有 `pa uninstall` 子命令。先下载当前站点的脚本，再传卸载选项：
+卸载由安装脚本执行，没有 `pa uninstall` 子命令。先从 Agent 仓库下载脚本，再传卸载选项：
 
 ```sh
-curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
 sh install.sh --uninstall
 ```
 
 Windows 下载实际执行的脚本：
 
 ```powershell
-Invoke-WebRequest 'https://status.example.com/api/public/agent/download/install.ps1' -OutFile install.ps1
+Invoke-WebRequest 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -OutFile install.ps1
 & ./install.ps1 -Uninstall
 ```
 
@@ -254,7 +255,7 @@ Agent 启动时通过真实网卡出口发现公网 IP，再按这个 IP 查询�
 2. Run it with the permissions required by that mode. Each machine has its own token; keep installation commands and configuration private.
 3. Run `pa status` and confirm the first report in the console. Create a separate Agent-type monitor if online status and resource alerts are needed.
 
-For installation and reinstallation, the site serves the script and the target machine detects its OS and architecture, reads the latest stable GitHub Release manifest, then downloads the matching version and verifies its size and SHA-256. No backend release lookup is required. The machine token is not sent to GitHub.
+For installation and reinstallation, the command downloads the script from the Agent GitHub repository and passes the site endpoint as an argument. The script detects the OS and architecture, reads the latest stable GitHub Release manifest, then downloads the matching version and verifies its size and SHA-256. No backend release lookup is required. The machine token is not sent to GitHub.
 
 System mode is available on Linux, macOS and Windows. User mode depends on the platform's service manager; POSIX user services currently require Linux `systemd --user`. Manual mode prepares files for foreground operation. Linux Docker mode uses Compose; its default system view is the container view unless host resources are explicitly mounted and permitted.
 
@@ -276,7 +277,7 @@ Supported actions are `re_report`, `check_update`, `restart` and `upgrade`. The 
 
 `pa rollback` requires the previous binary on the machine; it does not revert server data or configuration. A Windows managed update attempts to restore the previous binary if restarting the scheduled task fails. POSIX reinstallers keep private recovery records; after an interruption, stop the service and rerun the installer with the original privileges, mode, service name and directory. Preserve the transaction directory if a backup is missing.
 
-Uninstall uses the site's installer, not `pa uninstall`. Download `/install.sh` and run it with `--uninstall`, or download `/api/public/agent/download/install.ps1` and run it with `-Uninstall`. Use the original installation scope, service name and directory. Removing the host program does not delete console monitors; deleting a console entry does not uninstall the host program.
+Uninstall uses the scripts in the Agent GitHub repository, not `pa uninstall`. Download `install.sh` and run it with `--uninstall`, or download `install.ps1` and run it with `-Uninstall`. Use the original installation scope, service name and directory. Removing the host program does not delete console monitors; deleting a console entry does not uninstall the host program.
 
 ### Data and connectivity
 

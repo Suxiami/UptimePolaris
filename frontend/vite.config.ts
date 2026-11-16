@@ -166,8 +166,6 @@ export default defineConfig({
         ...backendProxy,
         ws: true,
       },
-      '/install.sh': { ...backendProxy },
-      '/install.ps1': { ...backendProxy },
       '/polaris-maintenance.js': { ...backendProxy },
     },
   },

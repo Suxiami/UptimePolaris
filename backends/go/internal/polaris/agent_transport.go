@@ -2,53 +2,20 @@ package polaris
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-//go:embed installers/*
-var installerFiles embed.FS
 var binaryPattern = regexp.MustCompile(`^polaris-agent-(?:(\d+\.\d+\.\d+)-)?(linux-x86_64|linux-aarch64|windows-x86_64|darwin-x86_64|darwin-aarch64)(\.exe)?$`)
-
-func (a *App) installer(w http.ResponseWriter, r *http.Request) error {
-	file := r.PathValue("file")
-	if file == "" {
-		file = strings.TrimPrefix(r.URL.Path, "/")
-	}
-	if file != "install.sh" && file != "install.ps1" {
-		return failure("not_found", 404)
-	}
-	raw, e := installerFiles.ReadFile("installers/" + file)
-	if e != nil {
-		return e
-	}
-	scheme := "http"
-	if r.TLS != nil || a.config.TrustProxy && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "https"
-	}
-	origin := scheme + "://" + r.Host
-	if strings.ContainsAny(origin, "'\"`\r\n\\$;<>") {
-		return failure("invalid_origin", 400)
-	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, e = w.Write([]byte(strings.ReplaceAll(string(raw), "POLARIS_ORIGIN_PLACEHOLDER", origin)))
-	return e
-}
 
 func (a *App) agentDownload(w http.ResponseWriter, r *http.Request) error {
 	file := r.PathValue("file")
-	if file == "install.sh" || file == "install.ps1" {
-		return a.installer(w, r)
-	}
 	match := binaryPattern.FindStringSubmatch(file)
 	if match == nil || (match[2] == "windows-x86_64") != (match[3] == ".exe") {
 		return failure("unsupported_platform", 422)

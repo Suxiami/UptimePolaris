@@ -80,7 +80,7 @@ try {
     assert.ok([200, 307].includes(response.status), path + ': ' + response.status);
     if (response.status === 200) assert.match(await response.text(), /SPA shell|data-http-status/);
   }
-  for (const path of ['/', '/admin', '/admin/settings', '/login', '/login/', '/setup', '/setup/', '/monitor/one', '/status/main', '/server/one', '/theme/a/b/c/d/e/app.js', '/polaris-maintenance.js', '/agent/private.bin', '/install.sh', '/install.ps1', '/api', '/api/shadow', '/api/public/maintenance', '/__scheduled']) {
+  for (const path of ['/', '/admin', '/admin/settings', '/login', '/login/', '/setup', '/setup/', '/monitor/one', '/status/main', '/server/one', '/theme/a/b/c/d/e/app.js', '/polaris-maintenance.js', '/agent/private.bin', '/api', '/api/shadow', '/api/public/maintenance', '/__scheduled']) {
     const response = await request(path, { headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' } });
     assert.equal(response.headers.get('x-worker-invoked'), '1', path);
     if (['/', '/admin', '/login', '/monitor/one'].includes(path)) {

@@ -25,7 +25,9 @@ function load(path, modules = {}, window = {}) {
   );
   return module.exports;
 }
-const install = load('shared/agent-install.ts');
+const install = load('shared/agent-install.ts', {
+  './agent-release-repository.json': JSON.parse(readFileSync('shared/agent-release-repository.json', 'utf8')),
+});
 
 function fixture(component = 'AddAgentPanel') {
   const slots = [], requests = [], creations = [], translations = new Map();

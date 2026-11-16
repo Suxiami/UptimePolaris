@@ -1,16 +1,13 @@
-/** Agent 安装、上报、任务轮询及配置交换的传输路由。 / Transport routes for Agent installation, reports, job polling, and configuration exchange. */
+/** Agent 上报、任务轮询及配置交换的传输路由。 / Transport routes for Agent reports, job polling, and configuration exchange. */
 export const agentTransportRoutes = new Hono<{ Bindings: Env }>();
 
 import { Hono } from 'hono';
 import type { Env } from '../../types';
-import { agentCapabilities, agentReleaseManifest, downloadAgentArtifact, serveAgentInstaller } from './download';
+import { agentCapabilities, agentReleaseManifest, downloadAgentArtifact } from './download';
 import { handleAgentHttpPush } from './http-push';
 import { handleAgentCommandResult, handleAgentProbePoll, handleAgentProbeResult, handleProbeSources } from './probes';
 import { handleAgentWebSocket } from './websocket';
 import { handleAgentConfigurationExchange } from './runtime-config';
-
-agentTransportRoutes.get('/install.sh', (c) => serveAgentInstaller(c, 'install.sh', true));
-agentTransportRoutes.get('/install.ps1', (c) => serveAgentInstaller(c, 'install.ps1', true));
 
 agentTransportRoutes.get('/api/public/agent/capabilities', agentCapabilities);
 agentTransportRoutes.post('/api/public/agent/config/:token', handleAgentConfigurationExchange);

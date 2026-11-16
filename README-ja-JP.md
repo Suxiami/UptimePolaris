@@ -169,10 +169,10 @@ pa logs -f
 
 - **Cloudflare**：ダッシュボードで Worker を削除します。D1 データベース、R2 バケット、KV 名前空間、Analytics Engine データセットは削除されず、PostgreSQL データベースも同様です。不要であれば別途削除してください。
 - **Go**：サービスを停止し、バイナリとデータディレクトリを削除します。PostgreSQL を使っている場合はそのデータベースも削除します。
-- **Agent**：サイトからインストールスクリプトを取得し、アンインストーラーを実行します。
+- **Agent**：Agent の GitHub リポジトリからインストールスクリプトを取得し、アンインストーラーを実行します。
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

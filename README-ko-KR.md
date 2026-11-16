@@ -169,10 +169,10 @@ pa logs -f
 
 - **Cloudflare**: 대시보드에서 Worker를 삭제합니다. D1 데이터베이스, R2 버킷, KV 네임스페이스, Analytics Engine 데이터셋은 함께 삭제되지 않으며 PostgreSQL 데이터베이스도 마찬가지입니다. 더 이상 필요하지 않으면 따로 삭제하세요.
 - **Go**: 서비스를 중지한 뒤 바이너리와 데이터 디렉터리를 삭제합니다. PostgreSQL을 쓴다면 해당 데이터베이스도 삭제합니다.
-- **Agent**: 사이트에서 설치 스크립트를 내려받아 제거 프로그램을 실행합니다.
+- **Agent**: Agent GitHub 저장소에서 설치 스크립트를 내려받아 제거 프로그램을 실행합니다.
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

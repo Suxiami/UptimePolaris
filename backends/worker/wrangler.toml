@@ -22,7 +22,7 @@ binding = "ASSETS"
 # 公开深链接选择主题；管理、登录与初始化使用内置 SPA。
 # Public deep links select themes; management, login, and setup use the built-in SPA.
 run_worker_first = [
-  "/api", "/api/*", "/install.sh", "/install.ps1",
+  "/api", "/api/*",
   "/", "/admin", "/admin/*", "/login", "/login/*", "/setup", "/setup/*",
   "/monitor/*", "/status/*", "/server/*",
   "/theme/*", "/polaris-maintenance.js", "/agent/*", "/__scheduled"

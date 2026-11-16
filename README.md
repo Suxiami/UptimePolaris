@@ -169,10 +169,10 @@ Back up the database and the `CONFIG` KV namespace first; the full procedure is 
 
 - **Cloudflare**: delete the Worker in the dashboard. The D1 database, R2 bucket, KV namespace and Analytics Engine dataset are not deleted with it, nor is a PostgreSQL database; remove them separately if you no longer need them.
 - **Go**: stop the service, then delete the binary and the data directory. If you use PostgreSQL, drop that database as well.
-- **Agent**: download the install script from your site and run the uninstaller:
+- **Agent**: download the install script from the Agent GitHub repository and run the uninstaller:
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

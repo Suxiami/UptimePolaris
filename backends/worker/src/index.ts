@@ -89,7 +89,7 @@ async function handleDatabaseRequest(request: Request, env: Env, ctx: ExecutionC
 
   const page = await handlePageRequest(request, env);
   if (page) return page;
-  if ((request.method === 'GET' || request.method === 'HEAD') && path !== '/api' && !path.startsWith('/api/') && path !== '/install.sh' && path !== '/install.ps1') {
+  if ((request.method === 'GET' || request.method === 'HEAD') && path !== '/api' && !path.startsWith('/api/')) {
     return env.ASSETS?.fetch(request) ?? new Response('not found', { status: 404 });
   }
 

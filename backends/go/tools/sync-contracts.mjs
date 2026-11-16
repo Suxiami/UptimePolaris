@@ -39,11 +39,6 @@ async function compile(source) {
 const brand = await compile(await fs.readFile(path.join(root, 'shared/brand-mark.ts'), 'utf8'));
 await output('brand-mark.json', JSON.stringify({ blue: brand.BRAND_BLUE, path: brand.BRAND_RING_PATH, ring: brand.RING, tightViewBox: brand.TIGHT_VIEWBOX }, null, 2) + '\n');
 
-const installerBuild = await build({ entryPoints: [path.join(root, 'backends/worker/src/lib/agent/install-script.ts')], bundle: true, write: false, format: 'esm', platform: 'neutral' });
-const scripts = await import('data:text/javascript;base64,' + Buffer.from(installerBuild.outputFiles[0].text).toString('base64'));
-await output('installers/install.sh', scripts.installSh({ base: 'POLARIS_ORIGIN_PLACEHOLDER' }));
-await output('installers/install.ps1', scripts.installPs1({ base: 'POLARIS_ORIGIN_PLACEHOLDER' }));
-
 const maintenanceBuild = await build({ entryPoints: [path.join(root, 'backends/worker/src/lib/public/maintenance-page.ts')], bundle: true, write: false, format: 'esm', platform: 'neutral' });
 const maintenance = await import('data:text/javascript;base64,' + Buffer.from(maintenanceBuild.outputFiles[0].text).toString('base64'));
 await output('maintenance-page.html', maintenance.maintenancePage({ title: 'POLARIS_MAINTENANCE_TITLE', description: 'POLARIS_MAINTENANCE_DESCRIPTION', endsAt: 'POLARIS_MAINTENANCE_END' }, 'auto'));

@@ -110,7 +110,7 @@ npx cf r2 buckets create --name uptime-polaris-themes
 
 绑定名 `DB`、`ASSETS`、`THEMES`、`UPTIME` 和 `CONFIG` 保持不变；资源名称可自行命名。D1 工具通过 `DB` 绑定选择数据库。
 
-静态资源目录是 `public/`。JS、CSS、字体和图片由 Cloudflare 静态资源服务直接返回，不调用 Worker。保留 SPA 回退和 `runWorkerFirst` / `run_worker_first` 路由数组：API、安装脚本、需要服务端处理的页面，以及 `/theme/*` 和 `/polaris-maintenance.js` 仍由 Worker 处理。
+静态资源目录是 `public/`。JS、CSS、字体和图片由 Cloudflare 静态资源服务直接返回，不调用 Worker。保留 SPA 回退和 `runWorkerFirst` / `run_worker_first` 路由数组：API、需要服务端处理的页面，以及 `/theme/*` 和 `/polaris-maintenance.js` 仍由 Worker 处理。
 
 未知页面由前端显示 404；未初始化时先跳转到 `/setup`。页面请求遇到服务端错误时，返回对应的静态错误 HTML，并保留原 HTTP 状态码；API 错误仍返回 JSON。
 
@@ -130,9 +130,9 @@ npx cf r2 buckets create --name uptime-polaris-themes
 
 ## Agent 下载
 
-站点提供安装脚本，脚本在目标机器上识别系统和架构，直接读取 GitHub 最新稳定版的 `manifest.json`，下载同一版本的二进制并校验文件大小和 SHA-256。安装和重新安装无需站点后端查询或转发版本清单。
+安装命令从 Agent 的 GitHub 仓库下载脚本，通过参数传入站点地址。脚本在目标机器上识别系统和架构，直接读取 GitHub 最新稳定版的 `manifest.json`，下载同一版本的二进制并校验文件大小和 SHA-256。安装和重新安装无需站点后端查询或转发版本清单。
 
-安装需要目标机器能访问 GitHub Release 下载地址；`pa update` 和自动更新还需要访问 GitHub API。目标平台没有可用版本，或 GitHub 访问失败时，安装会停止，不会跳过校验。
+安装需要目标机器能访问 `raw.githubusercontent.com` 和 GitHub Release 下载地址；`pa update` 和自动更新还需要访问 GitHub API。目标平台没有可用版本，或 GitHub 访问失败时，安装会停止，不会跳过校验。
 
 ## 上传与初始化
 
@@ -177,9 +177,9 @@ postgresql://user:password@db.example.com:5432/polaris?sslmode=verify-full
 
 在 Cloudflare Worker 的域名设置里绑定准备长期使用的自定义域名。应用按站点根路径运行，前端构建基址是 `/`。
 
-安装命令会用当前访问的 origin，包含协议、域名和端口。代理要正确转发 Host，并为 `/api/public/agent/*` 放行 WebSocket。安装入口和 API 不要套用返回 HTML 的 SPA 重写。
+安装命令会用当前访问的 origin，包含协议、域名和端口。代理要正确转发 Host，并为 `/api/public/agent/*` 放行 WebSocket。API 不要套用返回 HTML 的 SPA 重写。
 
-换域名之前，先验证新入口的 API、脚本和 WebSocket，再更新现有机器 `config.json` 里的 `endpoint` 并重启 Agent。已有 Agent 不会因为网页换了域名就自动改地址。
+换域名之前，先验证新入口的 API 和 WebSocket，再更新现有机器 `config.json` 里的 `endpoint` 并重启 Agent。已有 Agent 不会因为网页换了域名就自动改地址。
 
 ## 使用 PostgreSQL
 
@@ -223,7 +223,7 @@ npm run db:migrate:postgres
 - 完成初始化，重新登录有效，站点语言和图标正常。
 - 新建 HTTP 监控，过完一个调度周期后能看到真实检查时间和结果。
 - Push POST 生效，GET 不产生心跳。
-- `/install.sh` 和 `/install.ps1` 返回脚本，目标平台的清单和二进制能下载。
+- 目标机器能从 Agent 仓库下载 `install.sh` 或 `install.ps1`，并获取目标平台的清单和二进制。
 - Agent 首次上报可见；通知测试成功，分组范围符合预期。
 - 启用主题时，上传、预览和激活可用；启用 AE 时，回填状态正常（`ANALYTICS_SQL` 绑定可用）。
 
@@ -279,7 +279,7 @@ Authenticate the CF CLI with `npx cf auth login`. For a new installation using D
 
 Keep `backends/worker/cloudflare.config.ts` (CF CLI deployment) and `backends/worker/wrangler.toml` (database tools) aligned on the intended resources, variables and schedules. Keep bindings `DB`, `ASSETS`, `THEMES`, `UPTIME`, `ANALYTICS_SQL` and `CONFIG` unchanged where used. For PostgreSQL-only deployment, remove `DB` from both manual configurations and set `DATABASE_TYPE` to `postgres` (or remove it, since PostgreSQL is the default without `DB`), then enter the connection URL in setup step two. Bind an existing KV namespace as `CONFIG` in both manual configurations: `CONFIG: bindings.kv({ id: "<KV namespace ID>" })` for CF CLI, or a `kv_namespaces` entry with `binding = "CONFIG"` and the real namespace ID for Wrangler. `ASSETS` serves `public/`; R2 stores third-party theme files, while Analytics Engine provides raw observations and SQL backfill. R2 is optional; built-in themes work without it. The `UPTIME` binding is required for Worker setup. Keep the included `ANALYTICS_SQL` binding for history charts and daily archives; no query credentials are needed.
 
-The root `wrangler.jsonc` is used by fork and button deployments and is independent of the manual configuration. Direct Wrangler commands prefer it when both formats exist. For the manual environment, explicitly use `--config backends/worker/wrangler.toml` with direct database commands and check the account, database name and ID. Keep SPA fallback and the `runWorkerFirst` / `run_worker_first` route array. Cloudflare serves built-in JS, CSS, fonts and images directly, without invoking the Worker. APIs, installers, server-handled pages, `/theme/*` and `/polaris-maintenance.js` still use the Worker.
+The root `wrangler.jsonc` is used by fork and button deployments and is independent of the manual configuration. Direct Wrangler commands prefer it when both formats exist. For the manual environment, explicitly use `--config backends/worker/wrangler.toml` with direct database commands and check the account, database name and ID. Keep SPA fallback and the `runWorkerFirst` / `run_worker_first` route array. Cloudflare serves built-in JS, CSS, fonts and images directly, without invoking the Worker. APIs, server-handled pages, `/theme/*` and `/polaris-maintenance.js` still use the Worker.
 
 Unknown pages show the frontend 404 page, or redirect to `/setup` before initialization. Server errors on page requests use static error HTML with the original HTTP status; API errors remain JSON.
 
@@ -293,9 +293,9 @@ Manual deployment uses CF CLI; fork and button deployments run Wrangler with the
 
 ### Agent downloads
 
-The site serves the installation script. On the target machine, the script detects the OS and architecture, reads `manifest.json` from the latest stable GitHub Release, downloads the matching version, and verifies its size and SHA-256. Installation and reinstallation do not depend on a backend release lookup or proxy.
+The installation command downloads the script from the Agent GitHub repository and passes the site endpoint as an argument. On the target machine, the script detects the OS and architecture, reads `manifest.json` from the latest stable GitHub Release, downloads the matching version, and verifies its size and SHA-256. Installation and reinstallation do not depend on a backend release lookup or proxy.
 
-Installation requires access to GitHub Release downloads. `pa update` and automatic updates also need access to the GitHub API. A missing platform asset or failed GitHub connection stops installation; verification is never skipped.
+Installation requires access to `raw.githubusercontent.com` and GitHub Release downloads. `pa update` and automatic updates also need access to the GitHub API. A missing platform asset or failed GitHub connection stops installation; verification is never skipped.
 
 ### Database setup and initialization
 
@@ -315,6 +315,6 @@ Copying does not switch the application or synchronize later writes; it excludes
 
 ### Domain and release checks
 
-Bind the long-term domain to the Worker. The application runs at the origin root. A reverse proxy must preserve Host, support WebSocket for `/api/public/agent/*`, and avoid rewriting API or installer requests to HTML. Before changing domains, check the new API, installers and WebSocket, then update each Agent's `endpoint` and restart it; existing Agents do not change automatically.
+Bind the long-term domain to the Worker. The application runs at the origin root. A reverse proxy must preserve Host, support WebSocket for `/api/public/agent/*`, and avoid rewriting API requests to HTML. Before changing domains, check the new API and WebSocket, then update each Agent's `endpoint` and restart it; existing Agents do not change automatically.
 
 After deployment, check `/api/public/health`, the homepage, `/login` and the `/admin` deep link. Confirm setup and login, run an HTTP monitor, check Push POST and Agent reporting, and send a notification test. If enabled, check theme upload and activation and the Analytics Engine backfill state. Confirm the Agent can be installed on each intended platform. See [troubleshooting](troubleshooting.md#troubleshooting-guide) if data is missing.

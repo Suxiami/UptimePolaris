@@ -67,7 +67,7 @@
     "test:agent": "node test/agents/agent.test.mjs && npm run test:agent-registry && npm run test:agent-addons && npm run test:agent-network-probes",
     "test:agent-registry": "node test/agents/agent-registry.test.mjs && node test/db/agent-registry-migration.test.mjs",
     "test:agent-addons": "node test/agents/agent-addons.test.mjs && node test/ui/probe-source-readiness.test.mjs",
-    "test:installer": "node test/agents/install-script.test.mjs && node test/agents/install-script-execution.test.mjs",
+    "test:installer": "node test/agents/install-script.test.mjs",
     "test:agent-command": "node test/helpers/build.mjs test/agents/agent-command.test.ts artifacts/tmp/agent-command.mjs && node artifacts/tmp/agent-command.mjs && node test/helpers/build.mjs test/agents/agent-download.test.ts artifacts/tmp/agent-download.mjs && node artifacts/tmp/agent-download.mjs",
     "test:agent-commands": "node test/helpers/build.mjs test/agents/agent-commands.test.ts artifacts/tmp/agent-commands.mjs && node artifacts/tmp/agent-commands.mjs && node test/agents/command-lease.test.mjs",
     "test:agent-credentials": "node test/agents/agent-credentials.test.mjs",

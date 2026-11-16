@@ -169,10 +169,10 @@ Faça backup do banco e do namespace KV `CONFIG` primeiro; o procedimento comple
 
 - **Cloudflare**: exclua o Worker no painel. O banco D1, o bucket R2, o namespace KV e o conjunto de dados do Analytics Engine não são excluídos com ele, nem o banco PostgreSQL; remova-os separadamente se não precisar mais deles.
 - **Go**: pare o serviço, depois exclua o binário e o diretório de dados. Se usar PostgreSQL, exclua esse banco também.
-- **Agent**: baixe o script de instalação do seu site e execute o desinstalador:
+- **Agent**: baixe o script de instalação do repositório GitHub do Agent e execute o desinstalador:
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

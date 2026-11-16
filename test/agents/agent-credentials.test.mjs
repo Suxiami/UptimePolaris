@@ -39,8 +39,8 @@ const mf = new Miniflare({ kvNamespaces: { CONFIG: 'agent-credentials-config' },
 try {
   const db = await mf.getD1Database('DB');
   await applyD1Migrations(db);
-  // Installer and machine-credential checks use an initialized deployment without its setup session.
-  // 安装和机器凭据测试使用已初始化部署，不复用初始化会话。
+  // Machine credential checks use an initialized deployment without its setup session.
+  // 机器凭据测试使用已初始化部署，不复用初始化会话。
   const setup = await mf.dispatchFetch('http://localhost/api/auth/setup', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ credential: adminToken, username: 'fixture-owner', password: 'fixture-owner-secret' }),
@@ -51,23 +51,6 @@ try {
   ).bind('group-fixed', 'Fixed group').run();
 
   const origin = 'http://localhost';
-  for (const site of [origin, 'https://status.customer.example:9443', 'http://127.0.0.1:3884']) {
-    for (const path of ['/install.sh', '/install.ps1']) {
-      const response = await mf.dispatchFetch(site + path);
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get('cache-control'), 'no-cache');
-      assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-      assert.ok(!response.headers.get('content-type').includes('text/html'));
-      const source = await response.text();
-      assert.ok(source.includes(site));
-      assert.ok(path.endsWith('.sh') ? source.startsWith('#!/bin/sh') : source.includes(site + '/api/public/agent/download/install.ps1'));
-      const head = await mf.dispatchFetch(site + path, { method: 'HEAD' });
-      assert.equal(head.status, 200);
-      assert.equal(await head.text(), '');
-    }
-    const executionScript = await mf.dispatchFetch(site + '/api/public/agent/download/install.ps1');
-    assert.ok((await executionScript.text()).includes(`[string]$Endpoint = '${site}'`));
-  }
   const admin = { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' };
   async function request(path, init = {}) {
     const response = await mf.dispatchFetch(origin + path, init);

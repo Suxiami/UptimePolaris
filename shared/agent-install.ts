@@ -1,3 +1,5 @@
+import source from './agent-release-repository.json';
+
 export type InstallMode = 'system' | 'user' | 'manual' | 'docker';
 export type InstallPlatform = 'linux' | 'darwin' | 'windows';
 
@@ -39,20 +41,13 @@ export function agentBinaryUrl(downloadBase: string, platformKey: string): strin
   return `${downloadBase}/polaris-agent-${platformKey}${extension}`;
 }
 
-export function agentInstallScriptUrl(origin: string, platform: InstallPlatform | 'posix'): string {
-  const url = new URL(origin);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('installation requires an HTTP(S) site URL without credentials');
+export function agentInstallScriptUrl(platform: InstallPlatform | 'posix'): string {
   const file = platform === 'windows' ? 'install.ps1' : 'install.sh';
-  return new URL(`/${file}`, url.origin).href;
+  return `https://raw.githubusercontent.com/${source.repository}/main/${file}`;
 }
 
 function powershellInstallerBody(scriptUrl: string, credential: string, args: string): string {
   return `$previous = $env:POLARIS_AGENT_TOKEN; $installer = Join-Path ([IO.Path]::GetTempPath()) ('polaris-agent-' + [Guid]::NewGuid() + '.ps1'); try { [IO.File]::WriteAllText($installer, (Invoke-RestMethod -Uri ${powershellQuote(scriptUrl)} -ErrorAction Stop).TrimStart([char]0xFEFF), [Text.UTF8Encoding]::new($true)); $env:POLARIS_AGENT_TOKEN=${credential}; & $installer ${args}; if ($LASTEXITCODE -ne 0) { throw 'Agent installation failed' } } finally { $env:POLARIS_AGENT_TOKEN=$previous; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue }`;
-}
-
-export function powershellInstallBootstrap(origin: string): string {
-  const scriptUrl = new URL('/api/public/agent/download/install.ps1', origin).href;
-  return `param([string]$Token)\nif (-not $Token) { throw 'Agent token is required' }\n${powershellInstallerBody(scriptUrl, '$Token', '@args')}\n`;
 }
 
 /** 检查平台与安装模式后生成命令，失败时返回错误文本。 / Validate the platform and install mode, then generate a command or return an error. */
@@ -88,10 +83,12 @@ export function buildInstallCommand(options: InstallCommandOptions, platform: 'p
       options.sampleInterval > options.reportInterval) throw new Error('invalid sample/report interval');
 
   const reinstall = options.operation === 'reinstall';
-  const scriptUrl = agentInstallScriptUrl(options.endpoint, platform);
-  const origin = new URL(scriptUrl).origin;
+  const endpoint = new URL(options.endpoint);
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('installation requires an HTTP(S) site URL without credentials');
+  const scriptUrl = agentInstallScriptUrl(platform);
+  const origin = endpoint.origin;
   const values: Array<[string, string]> = [
-    ['endpoint', reinstall ? origin : ''],
+    ['endpoint', origin],
     ['platform', options.detectPlatform ? '' : options.platformKey!],
     ['mode', options.mode],
     ['sample-interval', reinstall || options.sampleInterval !== 5 ? String(options.sampleInterval) : ''],
@@ -114,7 +111,7 @@ export function buildInstallCommand(options: InstallCommandOptions, platform: 'p
   const args = pairs.map(([key, value]) => `-${key.replace(/-([a-z])/g, (_, character: string) => character.toUpperCase())} ${powershellQuote(value)}`).join(' ');
   const flags = (update === true ? ' -AutoUpdate' : update === false ? ' -DisableAutoUpdate' : '') +
     (options.registerCommand === false ? ' -NoRegisterCommand' : '');
-  return `& ([scriptblock]::Create((irm ${powershellQuote(scriptUrl)} -ErrorAction Stop))) ${powershellQuote(credential)} ${args}${flags}`;
+  return powershellInstallerBody(scriptUrl, powershellQuote(credential), `${args}${flags}`);
 }
 
 export interface AgentBuild { key: string; version: string; }

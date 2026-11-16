@@ -216,12 +216,6 @@ func (a *App) Handler() http.Handler {
 			a.serveThemeAsset(w, r)
 			return
 		}
-		if r.URL.Path == "/install.sh" || r.URL.Path == "/install.ps1" {
-			if err := a.installer(w, r); err != nil {
-				respond(w, 503, Object{"error": "agent_assets_unavailable"})
-			}
-			return
-		}
 		if a.serveThemePage(w, r) {
 			return
 		}

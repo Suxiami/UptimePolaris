@@ -231,12 +231,11 @@ curl --fail-with-body -X POST \
 
 | 路径 | 用途 |
 | --- | --- |
-| `/install.sh`、`/install.ps1` | 短安装命令入口 |
 | `/api/public/agent/manifest` | 已验证的最新 GitHub Release 清单 |
-| `/api/public/agent/download/:file` | 安装脚本，或到 GitHub Release 资产的重定向 |
+| `/api/public/agent/download/:file` | 到 GitHub Release 二进制资产的重定向 |
 | `/api/public/agent/capabilities` | 最新 Release 的平台清单 |
 
-安装与重新安装只从站点获取脚本。脚本在目标机器上查询 GitHub 最新稳定版并下载、校验二进制，不调用站点的清单、平台或二进制下载接口。上表的发布查询接口可独立使用，不是安装的前置条件。
+安装与重新安装从 Agent 的 GitHub 仓库获取脚本，通过参数传入站点地址。脚本在目标机器上查询 GitHub 最新稳定版并下载、校验二进制，不调用站点的清单、平台或二进制下载接口。上表的发布查询接口可独立使用，不是安装的前置条件。
 
 Agent 协议用独立的机器 Token，涉及上报、WebSocket、带租约的探测任务、结果和配置交换。路径里有 `public` 不代表写操作不用认证。
 
@@ -423,7 +422,7 @@ Create a machine with `POST /api/admin/agents`; the 201 response contains `id` a
 
 `POST /api/admin/agents/:id/commands` accepts `{ "action": "re_report" }`; supported actions are `re_report`, `check_update`, `restart` and `upgrade`. Worker returns 202 and Go 200 when queued. Query `GET /api/admin/agents/:id/commands` for the outcome. Batch requests use `ids` and `action`; inspect each result. The Worker limit is 100 deduplicated IDs and the Go limit is 500. The feature switch, Agent capability and online status gate commands; the Agent also checks whether restart or upgrade is safe. Installation, rollback and configuration details are in [the Agent guide](agents.md#agent-guide).
 
-Agent installation starts at `/install.sh` or `/install.ps1`; the script queries GitHub and downloads the latest stable binary on the target machine. The separate `/api/public/agent/manifest`, `/api/public/agent/download/:file` and `/api/public/agent/capabilities` release endpoints are not prerequisites for installation or reinstallation. Agent reporting, jobs and configuration use a machine token even though their paths contain `public`; never log those URLs. Agent groups and tags are separate from monitor groups and tags. Unified group management is under `/api/admin/groups`; destructive membership changes require `confirm_membership_reset: true`.
+Agent installation downloads `install.sh` or `install.ps1` from the Agent GitHub repository and passes the site endpoint as an argument. The script queries GitHub and downloads the latest stable binary on the target machine. The separate `/api/public/agent/manifest`, `/api/public/agent/download/:file` and `/api/public/agent/capabilities` release endpoints are not prerequisites for installation or reinstallation. Agent reporting, jobs and configuration use a machine token even though their paths contain `public`; never log those URLs. Agent groups and tags are separate from monitor groups and tags. Unified group management is under `/api/admin/groups`; destructive membership changes require `confirm_membership_reset: true`.
 
 ### Notifications and operations
 

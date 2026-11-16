@@ -169,10 +169,10 @@ Sauvegardez d'abord la base de données et l’espace de noms KV `CONFIG` ; la p
 
 - **Cloudflare** : supprimez le Worker dans le tableau de bord. La base D1, le bucket R2, l’espace de noms KV et le jeu de données Analytics Engine ne sont pas supprimés avec lui, pas plus que la base PostgreSQL ; supprimez-les séparément si vous n'en avez plus besoin.
 - **Go** : arrêtez le service, puis supprimez le binaire et le répertoire de données. Si vous utilisez PostgreSQL, supprimez aussi cette base.
-- **Agent** : téléchargez le script d'installation depuis votre site et lancez le désinstalleur :
+- **Agent** : téléchargez le script d'installation depuis le dépôt GitHub de l’Agent et lancez le désinstalleur :
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

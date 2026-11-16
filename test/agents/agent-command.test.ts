@@ -9,9 +9,10 @@ const input = {
   mode: 'user' as const, sampleInterval: 5, reportInterval: 60,
 };
 const posix = buildInstallCommand(input, 'posix');
-assert.match(posix, /installer=\$\(curl -fsSL 'https:\/\/host.test\/install.sh'\) && POLARIS_AGENT_TOKEN='tok'\\''en;\$\(whoami\)'/);
-assert.match(posix, /sh -c "\$installer" -- --platform 'linux-x86_64' --mode 'user'/);
-assert.doesNotMatch(posix, /\|\s*sh|--token\b|--endpoint|--sample-interval|--report-interval|mktemp/);
+assert.ok(posix.includes("installer=$(curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh')"));
+assert.match(posix, /POLARIS_AGENT_TOKEN='tok'\\''en;\$\(whoami\)'/);
+assert.match(posix, /sh -c "\$installer" -- --endpoint 'https:\/\/host.test' --platform 'linux-x86_64' --mode 'user'/);
+assert.doesNotMatch(posix, /\|\s*sh|--token\b|--sample-interval|--report-interval|mktemp/);
 const auto = buildInstallCommand({ ...input, detectPlatform: true, registerCommand: false }, 'posix');
 assert.doesNotMatch(auto, /--platform/);
 assert.match(auto, /--no-register-command/);
@@ -24,28 +25,30 @@ const custom = buildInstallCommand({ ...input, installDir: "/opt/O'Brien agent",
 assert.match(custom, /'\/opt\/O'\\''Brien agent'/);
 assert.match(custom, /--service-name 'polaris.user'/);
 const windows = buildInstallCommand({ ...input, platformKey: 'windows-x86_64', registerCommand: false }, 'windows');
-assert.match(windows, /scriptblock.*irm 'https:\/\/host.test\/install.ps1' -ErrorAction Stop/);
+assert.ok(windows.includes("Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -ErrorAction Stop"));
+assert.match(windows, /-endpoint 'https:\/\/host.test'/);
 assert.match(windows, /'tok''en;\$\(whoami\)'/);
 assert.match(windows, /-NoRegisterCommand/);
 const windowsUpdate = safeInstallCommand({ ...input, platformKey: 'windows-x86_64', autoUpdate: true }, 'windows');
 assert.equal(windowsUpdate.error, null);
 assert.match(windowsUpdate.command!, /-AutoUpdate/);
 assert.match(buildInstallCommand({ ...input, platformKey: 'windows-x86_64', operation: 'reinstall', autoUpdate: false }, 'windows'), /-DisableAutoUpdate/);
-assert.doesNotMatch(windows, /-Token\s|\?token|Join-Path/);
+assert.doesNotMatch(windows, /-Token\s|\?token|scriptblock/);
 
 for (const origin of ['https://status.customer.example', 'https://monitor.example:9443', 'http://127.0.0.1:3884']) {
   for (const platform of ['linux', 'darwin', 'windows'] as const) {
-    const url = agentInstallScriptUrl(origin + '/admin/agents?view=all', platform);
-    assert.equal(url, `${origin}/install.${platform === 'windows' ? 'ps1' : 'sh'}`);
+    const url = agentInstallScriptUrl(platform);
+    assert.equal(url, `https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.${platform === 'windows' ? 'ps1' : 'sh'}`);
     const command = buildInstallCommand({ ...input, endpoint: origin, platformKey: `${platform}-x86_64` }, platform === 'windows' ? 'windows' : 'posix');
     assert.ok(command.includes(url));
+    assert.ok(command.includes(`'${origin}'`));
     assert.doesNotMatch(command, /workers\.dev|host\.test/);
     const retry = buildInstallCommand({ ...input, endpoint: origin, platformKey: `${platform}-x86_64`, operation: 'reinstall' }, platform === 'windows' ? 'windows' : 'posix');
     assert.ok(retry.includes(`'${origin}'`));
   }
 }
-assert.throws(() => agentInstallScriptUrl('ftp://host.test', 'linux'), /HTTP\(S\)/);
-assert.throws(() => agentInstallScriptUrl('https://user:password@host.test', 'windows'), /without credentials/);
+assert.throws(() => buildInstallCommand({ ...input, endpoint: 'ftp://host.test' }, 'posix'), /HTTP\(S\)/);
+assert.throws(() => buildInstallCommand({ ...input, endpoint: 'https://user:password@host.test' }, 'windows'), /without credentials/);
 assert.throws(() => buildInstallCommand({ ...input, reportInterval: 4 }, 'posix'), /invalid sample\/report interval/);
 assert.throws(() => buildInstallCommand({ ...input, serviceName: 'bad/name' }, 'posix'), /invalid service name/);
 assert.deepEqual(installModesForPlatform('windows'), ['system', 'user', 'manual']);

@@ -169,10 +169,10 @@ pa logs -f
 
 - **Cloudflare**：在控制台刪除 Worker。D1 數據庫、R2 存儲桶、KV 命名空間和 Analytics Engine 數據集不會隨 Worker 刪除，PostgreSQL 數據庫也一樣；不再需要時請單獨刪除。
 - **Go**：停止服務後刪除程序和數據目錄；使用 PostgreSQL 時，另行刪除對應的數據庫。
-- **Agent**：下載當前站點的安裝腳本，然後執行卸載：
+- **Agent**：從 Agent 的 GitHub 倉庫下載安裝腳本，然後執行卸載：
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

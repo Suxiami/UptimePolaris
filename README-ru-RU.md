@@ -169,10 +169,10 @@ pa logs -f
 
 - **Cloudflare**: удалите Worker в панели. База D1, бакет R2, пространство имён KV и набор данных Analytics Engine вместе с ним не удаляются, как и база PostgreSQL; удалите их отдельно, если они больше не нужны.
 - **Go**: остановите службу, затем удалите бинарник и каталог данных. Если используется PostgreSQL, удалите и эту базу.
-- **Agent**: скачайте скрипт установки со своего сайта и запустите удаление:
+- **Agent**: скачайте скрипт установки из GitHub-репозитория Agent и запустите удаление:
 
   ```sh
-  curl -fsSL 'https://status.example.com/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 

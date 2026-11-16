@@ -22,7 +22,7 @@ export default defineConfig({
 			htmlHandling: "auto-trailing-slash",
 			notFoundHandling: "single-page-application",
 			runWorkerFirst: [
-				"/api", "/api/*", "/install.sh", "/install.ps1",
+				"/api", "/api/*",
 				"/", "/admin", "/admin/*", "/login", "/login/*", "/setup", "/setup/*",
 				"/monitor/*", "/status/*", "/server/*",
 				"/theme/*", "/polaris-maintenance.js", "/agent/*", "/__scheduled"
