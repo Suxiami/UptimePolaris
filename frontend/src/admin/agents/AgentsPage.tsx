@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import {
   AlertTriangle,
   ArrowUpCircle,
+  Download,
   Eye,
   EyeOff,
   KeyRound,
@@ -105,6 +106,7 @@ export function AgentsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const navigate = useNavigate();
   const [addOpen, setAddOpen] = useState(false);
+  const [installing, setInstalling] = useState<FleetAgent | null>(null);
   const [detail, setDetail] = useState<FleetAgent | null>(null);
   const [commandAgentId, setCommandAgentId] = useState<string | null>(null);
   const [editing, setEditing] = useState<FleetAgent | null>(null);
@@ -118,6 +120,15 @@ export function AgentsPage() {
   const [inProgress, setInProgress] = useState<Record<string, number>>({});
   const [clock, setClock] = useState(() => Math.floor(Date.now() / 1000));
   const [params, setParams] = useSearchParams();
+
+  const openAgent = useCallback((agent: FleetAgent) => {
+    if (agent.last_reported_at === null) {
+      setInstalling(agent);
+      setAddOpen(true);
+    } else {
+      setDetail(agent);
+    }
+  }, []);
 
   const load = async () => {
     try {
@@ -142,14 +153,14 @@ export function AgentsPage() {
     if (focus && agents === null) return;
     if (focus) {
       const match = agents?.find((agent) => agent.id === focus);
-      if (match) setDetail(match);
+      if (match) openAgent(match);
     }
     if (enroll) setAddOpen(true);
     const next = new URLSearchParams(params);
     next.delete('agent');
     next.delete('enroll');
     setParams(next, { replace: true });
-  }, [agents, params, setParams, navigate]);
+  }, [agents, params, setParams, navigate, openAgent]);
 
   /** Client-side filter; the whole fleet is already in one response. / 前端筛选；整个机器列表已在一次响应中。 */
   const rows = useMemo(() => {
@@ -168,7 +179,7 @@ export function AgentsPage() {
       if (stateFilter !== null) {
         if (stateFilter === 'online' && !(agent.active && agent.online === true)) return false;
         if (stateFilter === 'offline' && !(agent.active && agent.online === false)) return false;
-        if (stateFilter === 'never' && agent.online !== null) return false;
+        if (stateFilter === 'never' && agent.last_reported_at !== null) return false;
         if (stateFilter === 'behind' && agent.version_state !== 'behind') return false;
         if (stateFilter === 'current' && agent.version_state !== 'current') return false;
         if (stateFilter === 'unknown' && agent.version_state !== 'unknown' && agent.version_state !== 'not_reported') return false;
@@ -351,12 +362,14 @@ export function AgentsPage() {
           />
         ) : null}
 
-        {agents && agents.length > 0 ? <FleetInsights agents={agents} onOpen={setDetail} /> : null}
+        {agents && agents.length > 0 ? <FleetInsights agents={agents} onOpen={openAgent} /> : null}
 
         {addOpen ? (
           <AddAgentPanel
+            key={installing?.id ?? 'new'}
             open={addOpen}
-            onClose={() => { setAddOpen(false); void taxonomy.load(); }}
+            agent={installing ?? undefined}
+            onClose={() => { setAddOpen(false); setInstalling(null); void load(); void taxonomy.load(); }}
             onCreated={async () => { await Promise.all([load(), taxonomy.load()]); }}
           />
         ) : null}
@@ -668,7 +681,7 @@ export function AgentsPage() {
                           latestVersion={summary?.latestVersion ?? null}
                           onCommandsLoaded={noteCommands}
                           onUpdated={() => void load()}
-                          onOpenDetail={() => setDetail(agent)}
+                          onOpen={() => openAgent(agent)}
                           onOpenCommands={() => setCommandAgentId(agent.id)}
                           onRemove={() => requestDelete([agent])}
                         />
@@ -820,7 +833,7 @@ function AgentRow({
   latestVersion,
   onCommandsLoaded,
   onUpdated,
-  onOpenDetail,
+  onOpen,
   onOpenCommands,
   onRemove,
 }: {
@@ -845,12 +858,13 @@ function AgentRow({
   latestVersion: string | null;
   onCommandsLoaded: (id: string, commands: AgentCommandRecord[]) => void;
   onUpdated: () => void;
-  onOpenDetail: () => void;
+  onOpen: () => void;
   onOpenCommands: () => void;
   onRemove: () => void;
 }) {
   const present = useIsPresent();
   const adminT = useTranslations('admin');
+  const needsInstall = agent.last_reported_at === null;
   /*
     Liveness, with "never reported" as its own state.
 
@@ -909,7 +923,7 @@ function AgentRow({
             <div className="flex min-w-0 flex-col">
               <button
                 type="button"
-                onClick={onOpenDetail}
+                onClick={onOpen}
                 className="truncate text-left font-medium transition-colors hover:text-primary"
               >
                 {agent.name}
@@ -928,9 +942,9 @@ function AgentRow({
               </span>
               {taxonomyLabel ? <span className="truncate text-tiny text-default-500">{taxonomyLabel}</span> : null}
               {visibilityEnabled && agent.is_public !== 1 ? <span className="flex items-center gap-1 text-tiny text-default-500"><EyeOff size={12} />{adminT('list.private')}</span> : null}
-              <div className="mt-1 md:hidden">
+              {!needsInstall ? <div className="mt-1 md:hidden">
                 <AgentVersionPopover agent={agent} latestVersion={latestVersion} onCommandsLoaded={onCommandsLoaded} onUpdated={onUpdated} />
-              </div>
+              </div> : null}
             </div>
           </div>
       </td>
@@ -946,7 +960,7 @@ function AgentRow({
       </td>
 
       <td className="hidden px-3 py-3 whitespace-nowrap md:table-cell">
-        <AgentVersionPopover agent={agent} latestVersion={latestVersion} onCommandsLoaded={onCommandsLoaded} onUpdated={onUpdated} />
+        {needsInstall ? <span className="text-default-400">—</span> : <AgentVersionPopover agent={agent} latestVersion={latestVersion} onCommandsLoaded={onCommandsLoaded} onUpdated={onUpdated} />}
       </td>
 
       {[agent.cpu_usage, memPercent, diskPercent].map((value, index) => (
@@ -984,9 +998,9 @@ function AgentRow({
 
       <td className="px-3 py-3">
         <div className="flex items-center justify-end gap-0.5">
-          <Button isIconOnly size="sm" variant="light" aria-label={t('viewDetail')} onPress={onOpenDetail}>
+          {needsInstall ? <Button size="sm" color="primary" variant="flat" startContent={<Download size={15} />} onPress={onOpen}>{t('install')}</Button> : <Button isIconOnly size="sm" variant="light" aria-label={t('viewDetail')} onPress={onOpen}>
             <Eye size={15} />
-          </Button>
+          </Button>}
           <Button
             isIconOnly
             size="sm"
@@ -1001,7 +1015,7 @@ function AgentRow({
             <DropdownTrigger><Button isIconOnly size="sm" variant="light" aria-label={t('moreActions')} isDisabled={busy}><MoreHorizontal size={16} /></Button></DropdownTrigger>
             <DropdownMenu aria-label={t('moreActions')}>
               {visibilityEnabled ? <DropdownItem key="visibility" startContent={agent.is_public === 1 ? <EyeOff size={15} /> : <Eye size={15} />} onPress={onVisibility}>{adminT(agent.is_public === 1 ? 'action.hideFromPublic' : 'action.showOnPublic')}</DropdownItem> : null}
-              <DropdownItem key="commands" startContent={<SquareTerminal size={15} />} onPress={onOpenCommands}>{t('sectionCommands')}</DropdownItem>
+              {!needsInstall ? <DropdownItem key="commands" startContent={<SquareTerminal size={15} />} onPress={onOpenCommands}>{t('sectionCommands')}</DropdownItem> : null}
               <DropdownItem key="remove" showDivider className="text-danger" color="danger" startContent={<Trash2 size={15} />} onPress={onRemove}>{t('remove')}</DropdownItem>
             </DropdownMenu>
           </Dropdown>

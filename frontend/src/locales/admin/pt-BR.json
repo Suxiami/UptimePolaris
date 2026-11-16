@@ -951,6 +951,7 @@
     "footShown": "Exibindo {shown} de {total}",
     "footSelected": "{n, plural, =0 {# selecionados} one {# selecionado} other {# selecionados}}",
     "viewDetail": "Ver detalhes",
+    "install": "Instalar Agent",
     "regionTitle": "Distribuição por região",
     "regionHint": "Pela localização do IP público de cada agente",
     "regionUnknown": "Local desconhecido",

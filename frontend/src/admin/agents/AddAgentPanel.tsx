@@ -12,7 +12,7 @@ import {
   Switch,
 } from '@heroui/react';
 import clsx from 'clsx';
-import { Check, Copy, Plus, RadioTower, RefreshCw, Server } from 'lucide-react';
+import { Check, Copy, Loader2, Plus, RadioTower, RefreshCw, Server } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import {
@@ -26,14 +26,17 @@ import { TaxonomyFields, useAgentTaxonomy } from './Taxonomy';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CONTENT_TRANSITION, FEEDBACK_TRANSITION } from '@/lib/motion';
 import { useReducedMotion } from '@/lib/useReducedMotion';
+import type { FleetAgent } from './types';
 
 /** 配置并创建 Agent，展示安装命令并等待首次上报。 / Configure and create an Agent, display installation commands, and wait for its first report. */
 export function AddAgentPanel({
   open,
+  agent,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  agent?: FleetAgent;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
 }) {
@@ -46,7 +49,7 @@ export function AddAgentPanel({
   const [groupId, setGroupId] = useState<string | null>(null);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [taxonomyPending, setTaxonomyPending] = useState(false);
-  const [step, setStep] = useState<'configure' | 'install'>('configure');
+  const [step, setStep] = useState<'configure' | 'install'>(agent ? 'install' : 'configure');
   const [name, setName] = useState('');
   const [probeEnabled, setProbeEnabled] = useState(true);
 
@@ -58,7 +61,8 @@ export function AddAgentPanel({
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [registerCommand, setRegisterCommand] = useState(true);
 
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(!!agent);
+  const [installAttempt, setInstallAttempt] = useState(0);
   const [error, setError] = useState('');
   const [created, setCreated] = useState<{ id: string; token: string } | null>(null);
   /** Flipped when the first report arrives; unlocks "finish". / 首次上报后设为真，解锁“完成”。 */
@@ -69,6 +73,25 @@ export function AddAgentPanel({
   const onCreatedRef = useRef(onCreated);
   onCreatedRef.current = onCreated;
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !agent) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    setBusy(true);
+    setError('');
+    void agentsApi.agentDetail(agent.id, signal).then((detail) => {
+      if (signal.aborted) return;
+      if (!detail.install?.token) throw new Error('invalid_response');
+      setCreated({ id: agent.id, token: detail.install.token });
+      setDetected(detail.agent.last_reported_at !== null);
+    }).catch((failure) => {
+      if (!signal.aborted) setError(apiErrorMessage(failure));
+    }).finally(() => {
+      if (!signal.aborted) setBusy(false);
+    });
+    return () => controller.abort();
+  }, [open, agent?.id, installAttempt, apiErrorMessage]);
 
   const reset = () => {
     setStep('configure');
@@ -153,7 +176,7 @@ export function AddAgentPanel({
         if (cancelled) return;
         setPollError('');
         const row = agents.agents.find((agent) => agent.id === created.id);
-        if (row?.last_reported_at) {
+        if (row && row.last_reported_at !== null) {
           found = true;
           setChecking(false);
           setDetected(true);
@@ -223,7 +246,7 @@ export function AddAgentPanel({
         <DrawerHeader className="flex items-center gap-3 border-b border-[var(--polaris-line)] bg-[var(--polaris-card)] py-4">
           <Server size={18} className="text-default-500" />
           <span className="min-w-0">
-            <p className="text-medium font-semibold">{t('addTitle')}</p>
+            <p className="break-words text-medium font-semibold">{agent ? `${t('install')} · ${agent.name}` : t('addTitle')}</p>
             <p className="text-tiny font-normal text-default-500">
               {step === 'configure' ? t('addSubtitle') : t('addedSubtitle')}
             </p>
@@ -342,7 +365,7 @@ export function AddAgentPanel({
 
               {error ? <p role="alert" className="text-tiny text-danger-600">{error}</p> : null}
             </>
-          ) : (
+          ) : created ? (
             <>
               <div
                 className={clsx(
@@ -401,13 +424,14 @@ export function AddAgentPanel({
                   ) : null}
                 </div>
               ) : (
-                <p className="text-tiny text-danger-600">{error || ta('agent.cadenceInvalid')}</p>
+                <p className="text-tiny text-danger-600">{ta('agent.cadenceInvalid')}</p>
               )}
 
               <p className="text-tiny text-default-400">{ta('agent.installNote')}</p>
               {registerCommand ? <AgentCommandHelp mode={installMode} /> : null}
             </>
-          )}
+          ) : busy ? <p role="status" className="flex items-center gap-2 text-small text-default-500"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />{t('loading')}</p> : null}
+          {step === 'install' && error ? <div role="alert" className="flex flex-wrap items-center gap-2 text-small text-danger"><span className="min-w-0 flex-1">{error}</span>{agent && !created ? <Button size="sm" variant="light" isDisabled={busy} onPress={() => setInstallAttempt((value) => value + 1)}>{ta('action.retry')}</Button> : null}</div> : null}
           </motion.div>
           </AnimatePresence>
         </DrawerBody>

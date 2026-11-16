@@ -951,6 +951,7 @@
     "footShown": "{total}대 중 {shown}대 표시",
     "footSelected": "{n}대 선택됨",
     "viewDetail": "상세 보기",
+    "install": "Agent 설치",
     "regionTitle": "지역 분포",
     "regionHint": "각 Agent 공인 IP의 위치 기준",
     "regionUnknown": "알 수 없는 지역",

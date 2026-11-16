@@ -951,6 +951,7 @@
     "footShown": "显示 {shown} / {total}",
     "footSelected": "已选 {n} 台",
     "viewDetail": "查看详情",
+    "install": "安装 Agent",
     "regionTitle": "地区分布",
     "regionHint": "按各 Agent 公网 IP 的所在地统计",
     "regionUnknown": "未知地区",

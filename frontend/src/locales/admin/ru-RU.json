@@ -951,6 +951,7 @@
     "footShown": "Показано {shown} из {total}",
     "footSelected": "Выбрано: {n}",
     "viewDetail": "Подробнее",
+    "install": "Установить Agent",
     "regionTitle": "География",
     "regionHint": "По расположению публичного IP каждого агента",
     "regionUnknown": "Неизвестно",

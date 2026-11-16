@@ -951,6 +951,7 @@
     "footShown": "{total} 台中 {shown} 台を表示",
     "footSelected": "{n} 台選択中",
     "viewDetail": "詳細を表示",
+    "install": "Agent をインストール",
     "regionTitle": "地域の分布",
     "regionHint": "各 Agent のパブリック IP の所在地で集計",
     "regionUnknown": "不明な地域",
