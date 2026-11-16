@@ -199,7 +199,7 @@ Uptime Polaris 分别提供监控状态页和机器状态页。先在部署侧�
 
 两个域名的 `/admin` 进入同一套后台，登录会留在当前域名。会话 Cookie 按域名保存，第一次访问另一个域名的后台时，需要在该域名下登录。
 
-机器页默认关闭，登记的机器默认只有后台可见。启用机器页后，在 Agent 管理列表或编辑表单里设置“公开显示”，也可批量公开或隐藏。关闭机器页后，所有 Agent 公开控制隐藏，已有选择保留；机器公开接口停止返回数据，上报和探测继续运行。停用的机器不会出现在公开页。监控状态页只展示监控自己标记为公开的条目。
+机器页默认关闭。新建 Agent 默认开启“在状态页显示”；启用机器页后，这些机器即可公开展示。可在 Agent 管理列表或编辑表单中调整，也可批量公开或隐藏。关闭机器页后，所有 Agent 公开控制隐藏，已有选择保留；机器公开接口停止返回数据，上报和探测继续运行。停用的机器不会出现在公开页。监控状态页只展示监控自己标记为公开的条目。
 
 “主题管理”顶部的看板分别显示监控页和机器页当前的主题。在下方已安装主题里点“应用”，会按主题声明的页面类型自动匹配，不用再选下拉框。应用后在对应看板里配置选项或恢复内置主题，选项自动保存。安装和制作主题见[主题指南](themes.md)。
 
@@ -298,7 +298,7 @@ HTTP and TCP monitors support SSL, domain-expiry and DNS add-ons; Go also suppor
 
 Monitor groups organize status pages and notification scope; monitor tags classify monitors. Agent groups and tags are separate. A channel with no group scope applies to all monitors, including ungrouped ones. Recheck channel scope after moving monitors or deleting a group.
 
-The optional machine page is disabled by default, and registered machines are private until explicitly published. Configure DNS and the Worker or server domain before setting public-page domain mappings in the console. Disabling the machine page hides its public controls and stops its public API from serving machine data; Agent reporting continues. Cookies are scoped to each domain, so a second domain may require a separate login.
+The optional machine page is disabled by default. New Agents have public visibility enabled and appear once the machine page is enabled. Use the Agent list or edit form to change visibility, individually or in bulk. Configure DNS and the Worker or server domain before setting public-page domain mappings in the console. Disabling the machine page hides its public controls and stops its public API from serving machine data; Agent reporting continues. Cookies are scoped to each domain, so a second domain may require a separate login.
 
 The built-in machine page supports search, state/group/tag/region filters, card and list views, and a map when recognizable region data exists. Select 2–4 machines for comparison. History charts and CSV export are limited to published fields and available samples. Filter, view and comparison choices are shareable in the URL; pins and refresh interval are stored in the browser, and live samples in the current tab session.
 

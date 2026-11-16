@@ -123,9 +123,9 @@ func (a *App) agentRoutes() {
 			return failure("agent_page_disabled", 409)
 		}
 		id, secret := uuid(), token(32)
-		public := 0
-		if boolean(b["is_public"]) {
-			public = 1
+		public := 1
+		if b["is_public"] == false {
+			public = 0
 		}
 		row := Object{"id": id, "token": secret, "name": name, "active": 1, "probe_enabled": fallback(b, "probe_enabled", true), "is_public": public, "group_id": nil, "tag_ids": []string{}, "created_at": time.Now().Unix(), "updated_at": time.Now().Unix()}
 		if e = a.store.put(r.Context(), "agent", id, row); e != nil {

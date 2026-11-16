@@ -49,7 +49,6 @@ export function AddAgentPanel({
   const [step, setStep] = useState<'configure' | 'install'>('configure');
   const [name, setName] = useState('');
   const [probeEnabled, setProbeEnabled] = useState(true);
-  const [isPublic, setIsPublic] = useState(false);
 
   const [installMode, setInstallMode] = useState<InstallMode>('system');
   const [sampleInterval, setSampleInterval] = useState('5');
@@ -77,7 +76,6 @@ export function AddAgentPanel({
     setGroupId(null);
     setTagIds([]);
     setTaxonomyPending(false);
-    setIsPublic(false);
     setProbeEnabled(true);
     setInstallMode('system');
     setSampleInterval('5');
@@ -187,7 +185,6 @@ export function AddAgentPanel({
       const result = await agentsApi.createAgent({
         name: name.trim(),
         probe_enabled: probeEnabled,
-        ...(taxonomy.enabled ? { is_public: isPublic } : {}),
       });
       setCreated({ id: result.id, token: result.token });
       setStep('install');
@@ -254,7 +251,6 @@ export function AddAgentPanel({
 
               {taxonomy.enabled ? <TaxonomyFields groups={taxonomy.groups} tags={taxonomy.tags} groupId={groupId} tagIds={tagIds} onGroupChange={setGroupId} onTagsChange={setTagIds} onCreateGroup={taxonomy.createGroup} onCreateTag={taxonomy.createTag} disabled={busy || !!taxonomy.error} /> : null}
               {taxonomy.error ? <p role="alert" className="text-small text-danger">{apiErrorMessage(taxonomy.error)}</p> : null}
-              {taxonomy.enabled ? <Switch isSelected={isPublic} onValueChange={setIsPublic} isDisabled={busy}>{ta('action.showOnPublic')}</Switch> : null}
               <div className="polaris-well flex items-center justify-between gap-4 px-3.5 py-3">
                 <div className="min-w-0">
                   <p className="text-tiny font-medium">{t('addProbeNode')}</p>

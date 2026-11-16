@@ -245,7 +245,7 @@ Agent 协议用独立的机器 Token，涉及上报、WebSocket、带租约的�
 | 方法与路径 | 用途 |
 | --- | --- |
 | `GET /api/admin/agents` | 机器列表 |
-| `POST /api/admin/agents` | 登记机器，接收 `name` 和可选布尔值 `probe_enabled`，返回 201 `{ id, token }`，不创建监控 |
+| `POST /api/admin/agents` | 登记机器，接收 `name` 和可选布尔值 `probe_enabled`、`is_public`（均默认 `true`），返回 201 `{ id, token }`，不创建监控 |
 | `POST /api/admin/agents/visibility` | `{ ids, is_public }` 批量设置机器公开状态；最多 500 个 ID，要求机器页已启用 |
 | `POST /api/admin/agents/:id/rename` | 使用 `{ name }` 修改名称 |
 | `POST /api/admin/agents/:id/active` | 使用布尔值 `{ active }` 启用或停用机器 |
@@ -267,7 +267,7 @@ Agent 协议用独立的机器 Token，涉及上报、WebSocket、带租约的�
 
 读到运行配置后，保存时提交 `{ "expected_revision": "读取到的 desired_revision", "config": { ... } }`。首次版本可能为 `null`；`config` 必须包含七个运行字段。响应里的 `revision` 是期望版本，只有 Agent 上报匹配结果后才代表已经应用。状态为 `unreported`、`pending`、`synced` 或 `error`。关闭远程功能返回 403 `commands_disabled`；配置未上报或版本冲突分别返回 409 `agent_config_unsupported` 和 `agent_config_conflict`。
 
-Agent 创建时可以带 `is_public` 布尔值，默认 `false`。Worker 传这个字段时要求机器页已启用；Go 在设成 `true` 时要求启用。关闭机器页后，批量公开状态写入返回 409 `agent_page_disabled`，已保存状态保留。Agent 分组和标签的管理写操作也要求机器页启用；分类和监控分类独立。
+Agent 创建时可以带 `is_public` 布尔值，默认 `true`；显式传 `false` 时保持隐藏。机器页关闭时仍可省略这个字段登记机器，公开展示须等机器页启用。Worker 传这个字段时要求机器页已启用；Go 在设成 `true` 时要求启用。关闭机器页后，批量公开状态写入返回 409 `agent_page_disabled`，已保存状态保留。Agent 分组和标签的管理写操作也要求机器页启用；分类和监控分类独立。
 
 统一分组管理接口：
 
@@ -417,7 +417,7 @@ Creating a Push monitor returns `id` and `push_token`; ordinary edits preserve a
 
 ### Agent management
 
-Create a machine with `POST /api/admin/agents`; the 201 response contains `id` and its secret `token`. `GET /api/admin/agents` lists machines; `GET /api/admin/agents/:id/detail` reads details. The `rename`, `active` and `probe` subroutes accept `{ name }`, `{ active }` and `{ enabled }` respectively. `POST /api/admin/agents/visibility` changes public visibility for up to 500 IDs when the machine page is enabled. Deleting an Agent still referenced by a monitor returns 409 `agent_in_use`.
+Create a machine with `POST /api/admin/agents`; the 201 response contains `id` and its secret `token`. The optional `is_public` boolean defaults to `true`; set it to `false` to keep the machine hidden. Public display also requires the machine page to be enabled. `GET /api/admin/agents` lists machines; `GET /api/admin/agents/:id/detail` reads details. The `rename`, `active` and `probe` subroutes accept `{ name }`, `{ active }` and `{ enabled }` respectively. `POST /api/admin/agents/visibility` changes public visibility for up to 500 IDs when the machine page is enabled. Deleting an Agent still referenced by a monitor returns 409 `agent_in_use`.
 
 `GET` and `PUT /api/admin/agents/:id/config` read and submit the complete seven-field runtime configuration. Submit `expected_revision` from `desired_revision`; a saved revision is not applied until the Agent acknowledges it. States are `unreported`, `pending`, `synced` and `error`. A conflict returns 409 `agent_config_conflict`; reload before merging changes.
 

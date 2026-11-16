@@ -51,7 +51,7 @@ agentRoutes.post('/api/admin/agents', async (c) => {
   const token = randomToken();
   const now = Math.floor(Date.now() / 1000);
   const db = getDB(c.env);
-  const params = [id, name, token, JSON.stringify({ probe_enabled: body.probe_enabled !== false }), now, now,body.is_public===true?1:0];
+  const params = [id, name, token, JSON.stringify({ probe_enabled: body.probe_enabled !== false }), now, now, body.is_public !== false ? 1 : 0];
   await db.execute(db.type === 'postgres'
     ? 'INSERT INTO agents (id,name,token,options_json,created_at,updated_at,is_public) VALUES ($1,$2,$3,$4,$5,$6,$7)'
     : 'INSERT INTO agents (id,name,token,options_json,created_at,updated_at,is_public) VALUES (?,?,?,?,?,?,?)', params);
