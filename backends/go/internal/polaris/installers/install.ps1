@@ -269,11 +269,48 @@ if ($savedSample -isnot [int] -and $savedSample -isnot [long] -or $savedReport -
   Die 'existing config has invalid sample/report intervals'
 }
 $cfgJson = $savedValues | ConvertTo-Json
-try { Move-Item -LiteralPath $stage -Destination $dest -Force -ErrorAction Stop }
-catch { Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue; Die 'cannot replace Agent binary; stop the running Agent and retry' }
-Say "  installed   : $dest"
-
+$binaryBackup = Join-Path $destDir ('.binary-backup-' + [guid]::NewGuid().ToString('N') + '.exe')
+$cfgBackup = Join-Path $cfgDir ('.config-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$metadataBackup = Join-Path $cfgDir ('.install-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$binaryDiscard = Join-Path $destDir ('.binary-failed-' + [guid]::NewGuid().ToString('N') + '.exe')
+$cfgDiscard = Join-Path $cfgDir ('.config-failed-' + [guid]::NewGuid().ToString('N') + '.tmp')
 $cfgStage = Join-Path $cfgDir ('.config-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$hadBinary = Test-Path -LiteralPath $dest
+$hadConfig = Test-Path -LiteralPath $cfg
+$hadMetadata = Test-Path -LiteralPath $metadata
+$hadMarker = Test-Path -LiteralPath $marker
+$binaryInstalled = $false
+$configInstalled = $false
+$taskStopped = $false
+$taskTouched = $false
+$taskXml = $null
+$rollbackFailed = $false
+try {
+  if ($hadMetadata) { Copy-Item -LiteralPath $metadata -Destination $metadataBackup }
+  if ($Mode -ne 'manual' -and $existingTask) { $taskXml = Export-ScheduledTask -TaskName $taskName -ErrorAction Stop }
+  if ($existingTask -and $existingTask.Actions.Execute -eq $dest -and $existingTask.State -eq 'Running') {
+    Say "-> stopping existing Agent task"
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    $taskStopped = $true
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ((Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State -eq 'Running') {
+      if ([DateTime]::UtcNow -ge $deadline) { throw 'existing Agent task did not stop within 30 seconds' }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  $deadline = [DateTime]::UtcNow.AddSeconds(10)
+  while (-not $binaryInstalled) {
+    try {
+      if ($hadBinary) { [IO.File]::Replace($stage, $dest, $binaryBackup) }
+      else { [IO.File]::Move($stage, $dest) }
+      $binaryInstalled = $true
+    } catch {
+      if ([DateTime]::UtcNow -ge $deadline) { throw "cannot replace Agent binary: $($_.Exception.Message). Check for another running Agent using $dest." }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  Say "  installed   : $dest"
+
 try {
   $security = New-Object Security.AccessControl.FileSecurity
   $security.SetAccessRuleProtection($true, $false)
@@ -295,11 +332,10 @@ try {
   } finally { $stream.Dispose() }
   if (Test-Path -LiteralPath $cfg) {
     [IO.File]::SetAccessControl($cfg, $security)
-    $backup = Join-Path $cfgDir ('.config-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
-    try { [IO.File]::Replace($cfgStage, $cfg, $backup) }
-    finally { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+    [IO.File]::Replace($cfgStage, $cfg, $cfgBackup)
   }
   else { [IO.File]::Move($cfgStage, $cfg) }
+  $configInstalled = $true
 } finally { Remove-Item -LiteralPath $cfgStage -Force -ErrorAction SilentlyContinue }
 Set-Content -Path $marker -Value "$taskName|$dest" -NoNewline -Encoding ASCII
 Say "  config      : $cfg (private ACL)"
@@ -309,18 +345,17 @@ $scope = if ($Mode -eq 'system') { 'system' } else { 'user' }
 $recordArgs = @('record-installation', '--config', $cfg, '--manager', $manager, '--service-name', $ServiceName, '--scope', $scope, '--mode', $Mode, '--log-path', $logPath)
 if ($InstallDir) { $recordArgs += @('--install-dir', $InstallDir) }
 & $dest @recordArgs
-if ($LASTEXITCODE -ne 0) { Die "cannot save installation information" }
+if ($LASTEXITCODE -ne 0) { throw "cannot save installation information" }
 if (-not $NoRegisterCommand) {
   & $dest command register --config $cfg --scope $scope
-  if ($LASTEXITCODE -ne 0) { Die "cannot register the terminal command; use -NoRegisterCommand to skip registration" }
+  if ($LASTEXITCODE -ne 0) { throw "cannot register the terminal command; use -NoRegisterCommand to skip registration" }
   $registered = (Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json).registration.directory
   if ($registered -and ($env:Path.Split(';') -notcontains $registered)) { $env:Path += ';' + $registered }
 }
 if ($Mode -eq 'manual') {
   if ($NoRegisterCommand) { Say "manual mode selected; run: & '$($dest.Replace("'", "''"))' run --config '$($cfg.Replace("'", "''"))'" }
   else { Say "manual mode selected; run: pa run" }
-  exit 0
-}
+} else {
 Say "-> registering scheduled task"
 $action = New-ScheduledTaskAction -Execute $dest -Argument "run --config `"$cfg`" --log-file `"$logPath`""
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -332,8 +367,46 @@ if ($Mode -eq 'system') {
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 }
+$taskTouched = $true
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-Start-ScheduledTask -TaskName $taskName
+Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+}
+} catch {
+  $failure = $_
+  if ($taskTouched) {
+    try {
+      $currentTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      if ($currentTask -and $currentTask.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      }
+      if ($taskXml) { Register-ScheduledTask -TaskName $taskName -Xml $taskXml -Force | Out-Null }
+      elseif ($currentTask) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
+    } catch { $rollbackFailed = $true; Warn "cannot restore scheduled task: $($_.Exception.Message)" }
+  }
+  try {
+    if ($binaryInstalled) {
+      if ($hadBinary) { [IO.File]::Replace($binaryBackup, $dest, $binaryDiscard) }
+      else { Remove-Item -LiteralPath $dest -Force }
+    }
+    if ($configInstalled) {
+      if ($hadConfig) { [IO.File]::Replace($cfgBackup, $cfg, $cfgDiscard) }
+      else { Remove-Item -LiteralPath $cfg -Force }
+    }
+    if ($hadMetadata -and (Test-Path -LiteralPath $metadataBackup)) { Copy-Item -LiteralPath $metadataBackup -Destination $metadata -Force }
+    elseif (-not $hadMetadata) { Remove-Item -LiteralPath $metadata -Force -ErrorAction SilentlyContinue }
+    if (-not $hadMarker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
+  } catch { $rollbackFailed = $true; Warn "cannot restore previous installation: $($_.Exception.Message)" }
+  if ($taskStopped -and -not $rollbackFailed) {
+    try { Start-ScheduledTask -TaskName $taskName -ErrorAction Stop }
+    catch { $rollbackFailed = $true; Warn "cannot restart previous Agent task: $($_.Exception.Message)" }
+  }
+  if ($rollbackFailed) { Warn "recovery files retained in $destDir and $cfgDir" }
+  Die "installation failed: $($failure.Exception.Message)"
+} finally {
+  Remove-Item -LiteralPath $stage,$cfgStage -Force -ErrorAction SilentlyContinue
+  if (-not $rollbackFailed) { Remove-Item -LiteralPath $binaryBackup,$cfgBackup,$metadataBackup,$binaryDiscard,$cfgDiscard -Force -ErrorAction SilentlyContinue }
+}
+if ($Mode -eq 'manual') { exit 0 }
 
 Start-Sleep -Seconds 3
 $proc = Get-Process $agentName -ErrorAction SilentlyContinue

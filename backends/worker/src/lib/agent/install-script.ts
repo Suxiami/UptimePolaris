@@ -291,6 +291,7 @@ cleanup_install_temp() {
   [ -z "\${CFG_NEW:-}" ] || rm -f "$CFG_NEW"
   [ -z "\${CFG_MERGED:-}" ] || rm -f "$CFG_MERGED"
   [ -z "\${BIN_NEW:-}" ] || rm -f "$BIN_NEW"
+  [ -z "\${PLIST_NEW:-}" ] || rm -f "$PLIST_NEW"
   [ -z "\${TMP_DIR:-}" ] || rm -rf "$TMP_DIR"
   if [ "\${LOCK_HELD:-0}" = 1 ]; then
     rm -f "$LOCK_DIR/pid"
@@ -671,6 +672,27 @@ TIER=""
 NOTE=""
 SERVICE_MANAGER="manual"
 
+stop_unsupervised_agent() {
+  for old_pid in $(pgrep -f "$DEST" 2>/dev/null || true); do
+    [ "$old_pid" != "$$" ] || continue
+    old_command=$(ps -p "$old_pid" -o args= 2>/dev/null) || continue
+    case "$old_command" in
+      "$DEST run --config $CFG"|"$DEST run --config $CFG "*) ;;
+      *) continue ;;
+    esac
+    if ! kill -TERM "$old_pid" 2>/dev/null; then
+      kill -0 "$old_pid" 2>/dev/null && die "cannot stop the existing Agent process $old_pid"
+      continue
+    fi
+    attempts=0
+    while kill -0 "$old_pid" 2>/dev/null; do
+      attempts=$((attempts + 1))
+      [ "$attempts" -le 30 ] || die "existing Agent process $old_pid did not stop"
+      sleep 1
+    done
+  done
+}
+
 if [ "$MODE" = "manual" ]; then
   SERVICE_MANAGER="manual"
   TIER="C"
@@ -737,7 +759,8 @@ WantedBy=default.target
 UNIT
   systemctl --user daemon-reload
   set_service_tier "A"
-  systemctl --user enable --now "$SERVICE_NAME"
+  systemctl --user enable "$SERVICE_NAME"
+  systemctl --user restart "$SERVICE_NAME" || die "cannot start or restart the user service $SERVICE_NAME"
   TIER="A"
   if command -v loginctl >/dev/null 2>&1 && loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q 'Linger=yes'; then
     NOTE="registered as a user systemd service with lingering enabled"
@@ -757,8 +780,9 @@ elif [ "$OS" = "darwin" ] && { [ "$MODE" = "user" ] || [ "$MODE" = "system" ] ||
   PLIST="$PLIST_DIR/$SERVICE_NAME.plist"
   [ ! -e "$PLIST" ] || grep -Fxq "<!-- $SERVICE_MARKER -->" "$PLIST" || die "refusing to overwrite unrelated launchd job"
   mkdir -p "$PLIST_DIR"
-  xml_escape() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
-  cat > "$PLIST" <<PLISTEOF
+  PLIST_NEW=$(mktemp "$PLIST_DIR/.$SERVICE_NAME.XXXXXX") || die "cannot stage launchd job"
+  xml_escape() { printf '%s' "$1" | sed 's/&/\\&amp;/g; s/</\\&lt;/g; s/>/\\&gt;/g'; }
+  cat > "$PLIST_NEW" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- $SERVICE_MARKER -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -770,8 +794,35 @@ elif [ "$OS" = "darwin" ] && { [ "$MODE" = "user" ] || [ "$MODE" = "system" ] ||
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 </dict></plist>
 PLISTEOF
+  PLIST_OLD=""
+  if [ -f "$PLIST" ]; then
+    PLIST_OLD=$(mktemp "$PLIST_DIR/.$SERVICE_NAME.previous.XXXXXX") || die "cannot back up launchd job"
+    cp -p "$PLIST" "$PLIST_OLD" || die "cannot back up launchd job"
+  fi
   set_service_tier "A"
-  launchctl bootstrap "$DOMAIN" "$PLIST"
+  JOB_WAS_LOADED=0
+  if [ -n "$PLIST_OLD" ] && launchctl print "$DOMAIN/$SERVICE_NAME" >/dev/null 2>&1; then
+    if ! launchctl bootout "$DOMAIN" "$PLIST"; then
+      rm -f "$PLIST_OLD"
+      die "cannot stop the existing launchd job $SERVICE_NAME"
+    fi
+    JOB_WAS_LOADED=1
+  fi
+  if ! mv -f "$PLIST_NEW" "$PLIST"; then
+    [ "$JOB_WAS_LOADED" = 0 ] || launchctl bootstrap "$DOMAIN" "$PLIST" || warn "cannot restart the previous launchd job"
+    [ -z "$PLIST_OLD" ] || rm -f "$PLIST_OLD"
+    die "cannot replace the launchd job $SERVICE_NAME"
+  fi
+  if ! launchctl bootstrap "$DOMAIN" "$PLIST"; then
+    if [ -n "$PLIST_OLD" ]; then
+      mv -f "$PLIST_OLD" "$PLIST" || die "cannot restore the previous launchd job; backup: $PLIST_OLD"
+      [ "$JOB_WAS_LOADED" = 0 ] || launchctl bootstrap "$DOMAIN" "$PLIST" || warn "cannot restart the previous launchd job"
+    else
+      rm -f "$PLIST"
+    fi
+    die "cannot start the launchd job $SERVICE_NAME; check $PLIST"
+  fi
+  [ -z "$PLIST_OLD" ] || rm -f "$PLIST_OLD"
   TIER="A"
   NOTE="registered with launchd ($DOMAIN)"
 elif [ "$MODE" = "system" ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$HAVE_OPENRC" = 0 ] && [ "$HAVE_SUPERVISORD" = 0 ] && [ "$HAVE_S6" = 0 ]; then
@@ -816,14 +867,13 @@ UNIT
   # before the is-active check below can decide anything.
   # 先写入预期 tier：进程可能在下方 is-active 检查作出判断前启动并读取配置。
   set_service_tier "A"
-  systemctl enable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || die "cannot enable systemd service $SERVICE_NAME"
+  systemctl restart "$SERVICE_NAME" || die "cannot start or restart systemd service $SERVICE_NAME; check journalctl -u $SERVICE_NAME"
   if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
     TIER="A"
     NOTE="systemd service is running and will start on boot"
   else
-    TIER="C"
-    set_service_tier "$TIER"
-    NOTE="systemd unit was written but did not start; check: journalctl -u $SERVICE_NAME"
+    die "systemd service $SERVICE_NAME did not stay active; check journalctl -u $SERVICE_NAME"
   fi
 
 elif [ "$HAVE_OPENRC" = 1 ] && [ "$IS_ROOT" = 1 ]; then
@@ -844,9 +894,13 @@ error_log="/var/log/$AGENT_NAME.log"
 depend() { need net; after firewall; }
 UNIT
   chmod 755 "/etc/init.d/$SERVICE_NAME"
-  rc-update add "$SERVICE_NAME" default >/dev/null 2>&1 || true
+  rc-update add "$SERVICE_NAME" default >/dev/null 2>&1 || die "cannot enable OpenRC service $SERVICE_NAME"
   set_service_tier "A"
-  rc-service "$SERVICE_NAME" start >/dev/null 2>&1 || true
+  if rc-service "$SERVICE_NAME" status >/dev/null 2>&1; then
+    rc-service "$SERVICE_NAME" restart || die "cannot restart OpenRC service $SERVICE_NAME"
+  else
+    rc-service "$SERVICE_NAME" start || die "cannot start OpenRC service $SERVICE_NAME"
+  fi
   TIER="A"
   NOTE="openrc service is running and will start on boot"
 
@@ -871,10 +925,10 @@ stdout_logfile=$LOG_PATH
 stdout_logfile_maxbytes=5MB
 stdout_logfile_backups=2
 UNIT
-  supervisorctl reread >/dev/null 2>&1 || true
+  supervisorctl reread >/dev/null 2>&1 || die "cannot reread supervisor configuration"
   set_service_tier "A"
-  supervisorctl update >/dev/null 2>&1 || true
-  supervisorctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
+  supervisorctl update >/dev/null 2>&1 || die "cannot update supervisor configuration"
+  supervisorctl restart "$SERVICE_NAME" || die "cannot restart supervisor program $SERVICE_NAME"
   TIER="A"
   NOTE="registered with supervisord - it restarts the probe if it exits, and the image starts supervisord"
 
@@ -890,7 +944,13 @@ UNIT
   chmod 755 "/etc/services.d/$SERVICE_NAME/run"
   TIER="A"
   set_service_tier "$TIER"
-  NOTE="registered with s6-overlay - it will run the probe and restart it"
+  if [ -d "/run/service/$SERVICE_NAME" ] && command -v s6-svc >/dev/null 2>&1; then
+    s6-svc -r "/run/service/$SERVICE_NAME" || die "cannot restart s6 service $SERVICE_NAME"
+    NOTE="registered with s6-overlay - it will run the probe and restart it"
+  else
+    warn "s6 service directory is unavailable; restart the container to apply this installation"
+    NOTE="registered with s6-overlay; restart the container to apply the installation"
+  fi
 
 elif [ "$HAVE_CRON" = 1 ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$IN_CONTAINER" = 0 ]; then
   SERVICE_MANAGER="cron"
@@ -903,6 +963,7 @@ elif [ "$HAVE_CRON" = 1 ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$IN_CONTAINER" = 0 ];
     echo "@reboot $RUN >/dev/null 2>&1 $CRON_MARKER" ) | crontab - 2>/dev/null || true
   TIER="B"
   set_service_tier "B"
+  stop_unsupervised_agent
   nohup "$DEST" run --config "$CFG" >>"$LOG_PATH" 2>&1 &
   NOTE="started now, and a crontab @reboot entry will start it after a reboot"
 fi
@@ -911,6 +972,7 @@ if [ -z "$TIER" ]; then
   # Nothing here supervises anything. Start it detached and be honest: this
   # survives the shell exiting, and nothing else.
   # 此处没有管理器；分离启动只能保证进程在 shell 退出后继续运行。
+  stop_unsupervised_agent
   nohup "$DEST" run --config "$CFG" >>"$LOG_PATH" 2>&1 &
   sleep 2
   if pgrep -f "$DEST" >/dev/null 2>&1; then
@@ -1279,11 +1341,48 @@ if ($savedSample -isnot [int] -and $savedSample -isnot [long] -or $savedReport -
   Die 'existing config has invalid sample/report intervals'
 }
 $cfgJson = $savedValues | ConvertTo-Json
-try { Move-Item -LiteralPath $stage -Destination $dest -Force -ErrorAction Stop }
-catch { Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue; Die 'cannot replace Agent binary; stop the running Agent and retry' }
-Say "  installed   : $dest"
-
+$binaryBackup = Join-Path $destDir ('.binary-backup-' + [guid]::NewGuid().ToString('N') + '.exe')
+$cfgBackup = Join-Path $cfgDir ('.config-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$metadataBackup = Join-Path $cfgDir ('.install-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$binaryDiscard = Join-Path $destDir ('.binary-failed-' + [guid]::NewGuid().ToString('N') + '.exe')
+$cfgDiscard = Join-Path $cfgDir ('.config-failed-' + [guid]::NewGuid().ToString('N') + '.tmp')
 $cfgStage = Join-Path $cfgDir ('.config-' + [guid]::NewGuid().ToString('N') + '.tmp')
+$hadBinary = Test-Path -LiteralPath $dest
+$hadConfig = Test-Path -LiteralPath $cfg
+$hadMetadata = Test-Path -LiteralPath $metadata
+$hadMarker = Test-Path -LiteralPath $marker
+$binaryInstalled = $false
+$configInstalled = $false
+$taskStopped = $false
+$taskTouched = $false
+$taskXml = $null
+$rollbackFailed = $false
+try {
+  if ($hadMetadata) { Copy-Item -LiteralPath $metadata -Destination $metadataBackup }
+  if ($Mode -ne 'manual' -and $existingTask) { $taskXml = Export-ScheduledTask -TaskName $taskName -ErrorAction Stop }
+  if ($existingTask -and $existingTask.Actions.Execute -eq $dest -and $existingTask.State -eq 'Running') {
+    Say "-> stopping existing Agent task"
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    $taskStopped = $true
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ((Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State -eq 'Running') {
+      if ([DateTime]::UtcNow -ge $deadline) { throw 'existing Agent task did not stop within 30 seconds' }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  $deadline = [DateTime]::UtcNow.AddSeconds(10)
+  while (-not $binaryInstalled) {
+    try {
+      if ($hadBinary) { [IO.File]::Replace($stage, $dest, $binaryBackup) }
+      else { [IO.File]::Move($stage, $dest) }
+      $binaryInstalled = $true
+    } catch {
+      if ([DateTime]::UtcNow -ge $deadline) { throw "cannot replace Agent binary: $($_.Exception.Message). Check for another running Agent using $dest." }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  Say "  installed   : $dest"
+
 try {
   $security = New-Object Security.AccessControl.FileSecurity
   $security.SetAccessRuleProtection($true, $false)
@@ -1305,11 +1404,10 @@ try {
   } finally { $stream.Dispose() }
   if (Test-Path -LiteralPath $cfg) {
     [IO.File]::SetAccessControl($cfg, $security)
-    $backup = Join-Path $cfgDir ('.config-backup-' + [guid]::NewGuid().ToString('N') + '.tmp')
-    try { [IO.File]::Replace($cfgStage, $cfg, $backup) }
-    finally { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+    [IO.File]::Replace($cfgStage, $cfg, $cfgBackup)
   }
   else { [IO.File]::Move($cfgStage, $cfg) }
+  $configInstalled = $true
 } finally { Remove-Item -LiteralPath $cfgStage -Force -ErrorAction SilentlyContinue }
 Set-Content -Path $marker -Value "$taskName|$dest" -NoNewline -Encoding ASCII
 Say "  config      : $cfg (private ACL)"
@@ -1319,18 +1417,17 @@ $scope = if ($Mode -eq 'system') { 'system' } else { 'user' }
 $recordArgs = @('record-installation', '--config', $cfg, '--manager', $manager, '--service-name', $ServiceName, '--scope', $scope, '--mode', $Mode, '--log-path', $logPath)
 if ($InstallDir) { $recordArgs += @('--install-dir', $InstallDir) }
 & $dest @recordArgs
-if ($LASTEXITCODE -ne 0) { Die "cannot save installation information" }
+if ($LASTEXITCODE -ne 0) { throw "cannot save installation information" }
 if (-not $NoRegisterCommand) {
   & $dest command register --config $cfg --scope $scope
-  if ($LASTEXITCODE -ne 0) { Die "cannot register the terminal command; use -NoRegisterCommand to skip registration" }
+  if ($LASTEXITCODE -ne 0) { throw "cannot register the terminal command; use -NoRegisterCommand to skip registration" }
   $registered = (Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json).registration.directory
   if ($registered -and ($env:Path.Split(';') -notcontains $registered)) { $env:Path += ';' + $registered }
 }
 if ($Mode -eq 'manual') {
   if ($NoRegisterCommand) { Say "manual mode selected; run: & '$($dest.Replace("'", "''"))' run --config '$($cfg.Replace("'", "''"))'" }
   else { Say "manual mode selected; run: ${AGENT_SHORT_COMMAND} run" }
-  exit 0
-}
+} else {
 Say "-> registering scheduled task"
 $action = New-ScheduledTaskAction -Execute $dest -Argument "run --config \`"$cfg\`" --log-file \`"$logPath\`""
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -1342,8 +1439,46 @@ if ($Mode -eq 'system') {
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 }
+$taskTouched = $true
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-Start-ScheduledTask -TaskName $taskName
+Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+}
+} catch {
+  $failure = $_
+  if ($taskTouched) {
+    try {
+      $currentTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      if ($currentTask -and $currentTask.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      }
+      if ($taskXml) { Register-ScheduledTask -TaskName $taskName -Xml $taskXml -Force | Out-Null }
+      elseif ($currentTask) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
+    } catch { $rollbackFailed = $true; Warn "cannot restore scheduled task: $($_.Exception.Message)" }
+  }
+  try {
+    if ($binaryInstalled) {
+      if ($hadBinary) { [IO.File]::Replace($binaryBackup, $dest, $binaryDiscard) }
+      else { Remove-Item -LiteralPath $dest -Force }
+    }
+    if ($configInstalled) {
+      if ($hadConfig) { [IO.File]::Replace($cfgBackup, $cfg, $cfgDiscard) }
+      else { Remove-Item -LiteralPath $cfg -Force }
+    }
+    if ($hadMetadata -and (Test-Path -LiteralPath $metadataBackup)) { Copy-Item -LiteralPath $metadataBackup -Destination $metadata -Force }
+    elseif (-not $hadMetadata) { Remove-Item -LiteralPath $metadata -Force -ErrorAction SilentlyContinue }
+    if (-not $hadMarker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
+  } catch { $rollbackFailed = $true; Warn "cannot restore previous installation: $($_.Exception.Message)" }
+  if ($taskStopped -and -not $rollbackFailed) {
+    try { Start-ScheduledTask -TaskName $taskName -ErrorAction Stop }
+    catch { $rollbackFailed = $true; Warn "cannot restart previous Agent task: $($_.Exception.Message)" }
+  }
+  if ($rollbackFailed) { Warn "recovery files retained in $destDir and $cfgDir" }
+  Die "installation failed: $($failure.Exception.Message)"
+} finally {
+  Remove-Item -LiteralPath $stage,$cfgStage -Force -ErrorAction SilentlyContinue
+  if (-not $rollbackFailed) { Remove-Item -LiteralPath $binaryBackup,$cfgBackup,$metadataBackup,$binaryDiscard,$cfgDiscard -Force -ErrorAction SilentlyContinue }
+}
+if ($Mode -eq 'manual') { exit 0 }
 
 Start-Sleep -Seconds 3
 $proc = Get-Process $agentName -ErrorAction SilentlyContinue

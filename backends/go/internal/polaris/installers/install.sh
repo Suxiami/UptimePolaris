@@ -245,6 +245,7 @@ cleanup_install_temp() {
   [ -z "${CFG_NEW:-}" ] || rm -f "$CFG_NEW"
   [ -z "${CFG_MERGED:-}" ] || rm -f "$CFG_MERGED"
   [ -z "${BIN_NEW:-}" ] || rm -f "$BIN_NEW"
+  [ -z "${PLIST_NEW:-}" ] || rm -f "$PLIST_NEW"
   [ -z "${TMP_DIR:-}" ] || rm -rf "$TMP_DIR"
   if [ "${LOCK_HELD:-0}" = 1 ]; then
     rm -f "$LOCK_DIR/pid"
@@ -641,6 +642,27 @@ TIER=""
 NOTE=""
 SERVICE_MANAGER="manual"
 
+stop_unsupervised_agent() {
+  for old_pid in $(pgrep -f "$DEST" 2>/dev/null || true); do
+    [ "$old_pid" != "$$" ] || continue
+    old_command=$(ps -p "$old_pid" -o args= 2>/dev/null) || continue
+    case "$old_command" in
+      "$DEST run --config $CFG"|"$DEST run --config $CFG "*) ;;
+      *) continue ;;
+    esac
+    if ! kill -TERM "$old_pid" 2>/dev/null; then
+      kill -0 "$old_pid" 2>/dev/null && die "cannot stop the existing Agent process $old_pid"
+      continue
+    fi
+    attempts=0
+    while kill -0 "$old_pid" 2>/dev/null; do
+      attempts=$((attempts + 1))
+      [ "$attempts" -le 30 ] || die "existing Agent process $old_pid did not stop"
+      sleep 1
+    done
+  done
+}
+
 if [ "$MODE" = "manual" ]; then
   SERVICE_MANAGER="manual"
   TIER="C"
@@ -709,7 +731,8 @@ WantedBy=default.target
 UNIT
   systemctl --user daemon-reload
   set_service_tier "A"
-  systemctl --user enable --now "$SERVICE_NAME"
+  systemctl --user enable "$SERVICE_NAME"
+  systemctl --user restart "$SERVICE_NAME" || die "cannot start or restart the user service $SERVICE_NAME"
   TIER="A"
   if command -v loginctl >/dev/null 2>&1 && loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q 'Linger=yes'; then
     NOTE="registered as a user systemd service with lingering enabled"
@@ -729,8 +752,9 @@ elif [ "$OS" = "darwin" ] && { [ "$MODE" = "user" ] || [ "$MODE" = "system" ] ||
   PLIST="$PLIST_DIR/$SERVICE_NAME.plist"
   [ ! -e "$PLIST" ] || grep -Fxq "<!-- $SERVICE_MARKER -->" "$PLIST" || die "refusing to overwrite unrelated launchd job"
   mkdir -p "$PLIST_DIR"
-  xml_escape() { printf '%s' "$1" | sed 's/&/&amp;/g; s/</&lt;/g; s/>/&gt;/g'; }
-  cat > "$PLIST" <<PLISTEOF
+  PLIST_NEW=$(mktemp "$PLIST_DIR/.$SERVICE_NAME.XXXXXX") || die "cannot stage launchd job"
+  xml_escape() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+  cat > "$PLIST_NEW" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- $SERVICE_MARKER -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -742,8 +766,35 @@ elif [ "$OS" = "darwin" ] && { [ "$MODE" = "user" ] || [ "$MODE" = "system" ] ||
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 </dict></plist>
 PLISTEOF
+  PLIST_OLD=""
+  if [ -f "$PLIST" ]; then
+    PLIST_OLD=$(mktemp "$PLIST_DIR/.$SERVICE_NAME.previous.XXXXXX") || die "cannot back up launchd job"
+    cp -p "$PLIST" "$PLIST_OLD" || die "cannot back up launchd job"
+  fi
   set_service_tier "A"
-  launchctl bootstrap "$DOMAIN" "$PLIST"
+  JOB_WAS_LOADED=0
+  if [ -n "$PLIST_OLD" ] && launchctl print "$DOMAIN/$SERVICE_NAME" >/dev/null 2>&1; then
+    if ! launchctl bootout "$DOMAIN" "$PLIST"; then
+      rm -f "$PLIST_OLD"
+      die "cannot stop the existing launchd job $SERVICE_NAME"
+    fi
+    JOB_WAS_LOADED=1
+  fi
+  if ! mv -f "$PLIST_NEW" "$PLIST"; then
+    [ "$JOB_WAS_LOADED" = 0 ] || launchctl bootstrap "$DOMAIN" "$PLIST" || warn "cannot restart the previous launchd job"
+    [ -z "$PLIST_OLD" ] || rm -f "$PLIST_OLD"
+    die "cannot replace the launchd job $SERVICE_NAME"
+  fi
+  if ! launchctl bootstrap "$DOMAIN" "$PLIST"; then
+    if [ -n "$PLIST_OLD" ]; then
+      mv -f "$PLIST_OLD" "$PLIST" || die "cannot restore the previous launchd job; backup: $PLIST_OLD"
+      [ "$JOB_WAS_LOADED" = 0 ] || launchctl bootstrap "$DOMAIN" "$PLIST" || warn "cannot restart the previous launchd job"
+    else
+      rm -f "$PLIST"
+    fi
+    die "cannot start the launchd job $SERVICE_NAME; check $PLIST"
+  fi
+  [ -z "$PLIST_OLD" ] || rm -f "$PLIST_OLD"
   TIER="A"
   NOTE="registered with launchd ($DOMAIN)"
 elif [ "$MODE" = "system" ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$HAVE_OPENRC" = 0 ] && [ "$HAVE_SUPERVISORD" = 0 ] && [ "$HAVE_S6" = 0 ]; then
@@ -788,14 +839,13 @@ UNIT
   # before the is-active check below can decide anything.
   # 先写入预期 tier：进程可能在下方 is-active 检查作出判断前启动并读取配置。
   set_service_tier "A"
-  systemctl enable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || die "cannot enable systemd service $SERVICE_NAME"
+  systemctl restart "$SERVICE_NAME" || die "cannot start or restart systemd service $SERVICE_NAME; check journalctl -u $SERVICE_NAME"
   if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
     TIER="A"
     NOTE="systemd service is running and will start on boot"
   else
-    TIER="C"
-    set_service_tier "$TIER"
-    NOTE="systemd unit was written but did not start; check: journalctl -u $SERVICE_NAME"
+    die "systemd service $SERVICE_NAME did not stay active; check journalctl -u $SERVICE_NAME"
   fi
 
 elif [ "$HAVE_OPENRC" = 1 ] && [ "$IS_ROOT" = 1 ]; then
@@ -816,9 +866,13 @@ error_log="/var/log/$AGENT_NAME.log"
 depend() { need net; after firewall; }
 UNIT
   chmod 755 "/etc/init.d/$SERVICE_NAME"
-  rc-update add "$SERVICE_NAME" default >/dev/null 2>&1 || true
+  rc-update add "$SERVICE_NAME" default >/dev/null 2>&1 || die "cannot enable OpenRC service $SERVICE_NAME"
   set_service_tier "A"
-  rc-service "$SERVICE_NAME" start >/dev/null 2>&1 || true
+  if rc-service "$SERVICE_NAME" status >/dev/null 2>&1; then
+    rc-service "$SERVICE_NAME" restart || die "cannot restart OpenRC service $SERVICE_NAME"
+  else
+    rc-service "$SERVICE_NAME" start || die "cannot start OpenRC service $SERVICE_NAME"
+  fi
   TIER="A"
   NOTE="openrc service is running and will start on boot"
 
@@ -843,10 +897,10 @@ stdout_logfile=$LOG_PATH
 stdout_logfile_maxbytes=5MB
 stdout_logfile_backups=2
 UNIT
-  supervisorctl reread >/dev/null 2>&1 || true
+  supervisorctl reread >/dev/null 2>&1 || die "cannot reread supervisor configuration"
   set_service_tier "A"
-  supervisorctl update >/dev/null 2>&1 || true
-  supervisorctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
+  supervisorctl update >/dev/null 2>&1 || die "cannot update supervisor configuration"
+  supervisorctl restart "$SERVICE_NAME" || die "cannot restart supervisor program $SERVICE_NAME"
   TIER="A"
   NOTE="registered with supervisord - it restarts the probe if it exits, and the image starts supervisord"
 
@@ -862,7 +916,13 @@ UNIT
   chmod 755 "/etc/services.d/$SERVICE_NAME/run"
   TIER="A"
   set_service_tier "$TIER"
-  NOTE="registered with s6-overlay - it will run the probe and restart it"
+  if [ -d "/run/service/$SERVICE_NAME" ] && command -v s6-svc >/dev/null 2>&1; then
+    s6-svc -r "/run/service/$SERVICE_NAME" || die "cannot restart s6 service $SERVICE_NAME"
+    NOTE="registered with s6-overlay - it will run the probe and restart it"
+  else
+    warn "s6 service directory is unavailable; restart the container to apply this installation"
+    NOTE="registered with s6-overlay; restart the container to apply the installation"
+  fi
 
 elif [ "$HAVE_CRON" = 1 ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$IN_CONTAINER" = 0 ]; then
   SERVICE_MANAGER="cron"
@@ -874,6 +934,7 @@ elif [ "$HAVE_CRON" = 1 ] && [ "$HAVE_SYSTEMD" = 0 ] && [ "$IN_CONTAINER" = 0 ];
   ( crontab -l 2>/dev/null | filter_owned_cron ;     echo "@reboot $RUN >/dev/null 2>&1 $CRON_MARKER" ) | crontab - 2>/dev/null || true
   TIER="B"
   set_service_tier "B"
+  stop_unsupervised_agent
   nohup "$DEST" run --config "$CFG" >>"$LOG_PATH" 2>&1 &
   NOTE="started now, and a crontab @reboot entry will start it after a reboot"
 fi
@@ -882,6 +943,7 @@ if [ -z "$TIER" ]; then
   # Nothing here supervises anything. Start it detached and be honest: this
   # survives the shell exiting, and nothing else.
   # 此处没有管理器；分离启动只能保证进程在 shell 退出后继续运行。
+  stop_unsupervised_agent
   nohup "$DEST" run --config "$CFG" >>"$LOG_PATH" 2>&1 &
   sleep 2
   if pgrep -f "$DEST" >/dev/null 2>&1; then
