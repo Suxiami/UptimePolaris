@@ -1,0 +1,14 @@
+**
+!frontend/
+!frontend/**
+!shared/
+!shared/**
+!backends/
+!backends/go/
+!backends/go/**
+**/node_modules
+**/.env
+**/.env.*
+**/*.tsbuildinfo
+backends/go/internal/polaris/web
+backends/go/dist

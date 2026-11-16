@@ -24,6 +24,23 @@ Windows PowerShell：
 
 首次初始化可以选 SQLite 或 PostgreSQL。显式选择会写进数据目录的 `database.json`，优先于环境变量和启动参数。这个文件可能包含明文 PostgreSQL URL，要保护文件和备份；POSIX 权限为 `0600`，Windows 还要限制 ACL。重启还没初始化的程序后，用最新日志里的密钥。
 
+## Docker 部署
+
+镜像支持 `linux/amd64` 和 `linux/arm64`。启动容器：
+
+```sh
+docker run -d --name uptime-polaris --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v uptime-polaris-data:/data \
+  ghcr.io/xinglingqaq/uptimepolaris:latest
+
+docker logs uptime-polaris
+```
+
+打开 `http://127.0.0.1:8080/setup`，使用日志中的初始化密钥完成设置。日志包含密钥，请妥善保管。也可以将 `latest` 换成具体版本标签，例如 `v0.1.0`。
+
+数据和主题保存在 `/data`，请备份数据卷。如果使用宿主机目录挂载，确保目录可供 UID 和 GID `65532` 写入。
+
 ## 部署配置
 
 程序读取进程当前工作目录里的 `.env`。优先级从高到低：命令行参数 > 进程环境变量 > `.env` > 默认值。服务管理器或容器仍可以直接传环境变量。
@@ -137,6 +154,23 @@ Choose SQLite or PostgreSQL during first setup. An explicit selection is saved i
 | `POLARIS_TRUST_PROXY` | `--trust-proxy` | `false` |
 | `POLARIS_SETUP_KEY` | none | Setup credential; falls back to `POLARIS_ADMIN_TOKEN` |
 | `POLARIS_ADMIN_TOKEN` | none | Optional admin API bearer credential |
+
+### Docker
+
+The image supports `linux/amd64` and `linux/arm64`:
+
+```sh
+docker run -d --name uptime-polaris --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v uptime-polaris-data:/data \
+  ghcr.io/xinglingqaq/uptimepolaris:latest
+
+docker logs uptime-polaris
+```
+
+Open `http://127.0.0.1:8080/setup` and use the setup key from the logs. Protect logs containing the key. Replace `latest` with a specific version tag, such as `v0.1.0`, if needed.
+
+Data and themes are stored in `/data`; back up the volume. For a host directory mount, grant write access to UID and GID `65532`.
 
 ### Deployment and operation
 
