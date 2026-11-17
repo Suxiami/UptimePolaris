@@ -12,7 +12,12 @@ try {
   const plan = migrationPlan();
   const registryIndex = plan.findIndex(file => file.name === '0037_agent_registry_visibility.sql');
   assert.ok(registryIndex > 0);
-  for (const file of plan.slice(0, registryIndex)) await db.batch(file.statements.map(sql => db.prepare(sql)));
+  // A migration may be intentionally empty, and D1 rejects an empty batch.
+  // 迁移文件可能有意为空，而 D1 不接受空批次。
+  const apply = async (files) => {
+    for (const file of files) if (file.statements.length) await db.batch(file.statements.map(sql => db.prepare(sql)));
+  };
+  await apply(plan.slice(0, registryIndex));
   const id = '12345678-1234-4234-8234-123456789abc';
   await db.prepare("INSERT INTO monitors(id,num_id,name,type,target,agent_token,options_json,created_at,updated_at) VALUES(?,1,'Existing machine','agent','','saved-token',?,1,1)")
     .bind(id, JSON.stringify({ probe_enabled: false, alerts: { cpu: { enabled: true, threshold: 90, duration_sec: 60, recovery_pct: 80 } } })).run();
@@ -22,7 +27,7 @@ try {
   await db.prepare("INSERT INTO agent_uptime_daily(monitor_id,day,total,up,warn,last_minute_ts) VALUES(?,'2026-01-01',1,1,0,60)").bind(id).run();
   await db.prepare("INSERT INTO monitors(id,num_id,name,type,target,options_json,created_at,updated_at) VALUES('web',2,'Web','http','https://example.com',?,1,1)")
     .bind(JSON.stringify({ check_source: { type: 'agent', agent_id: id } })).run();
-  for (const file of plan.slice(registryIndex)) await db.batch(file.statements.map(sql => db.prepare(sql)));
+  await apply(plan.slice(registryIndex));
   const machine = await db.prepare('SELECT * FROM agents WHERE id=?').bind(id).first();
   assert.equal(machine.token, 'saved-token');
   assert.equal(machine.group_id, null, 'machine groups remain independent of monitor groups');

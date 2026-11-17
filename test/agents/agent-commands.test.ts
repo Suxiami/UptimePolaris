@@ -127,7 +127,9 @@ check('a prefix or substring does not satisfy the check', () => {
   循环必须对每个 ID 返回结果，不能在首次拒绝时停止；批次是操作员的选择，
   其中一台失联主机不应掩盖其他结果。
 */
-const failingEnv = { DB: { prepare() { throw new Error('db down'); } } } as unknown as Parameters<typeof enqueueCommands>[0];
+// Settings live in KV now, so an unreadable settings store is a failing CONFIG namespace.
+// 设置已迁到 KV，因此“设置不可读”是 CONFIG 命名空间读取失败。
+const failingEnv = { CONFIG: { get: async () => { throw new Error('db down'); } } } as unknown as Parameters<typeof enqueueCommands>[0];
 const disabledEnv = { DB: { prepare() { return { bind() { return this; }, all: async () => ({ results: [], meta: {} }) }; } } } as unknown as Parameters<typeof enqueueCommands>[0];
 
 await checkAsync('a batch reports one verdict per id and does not abort', async () => {

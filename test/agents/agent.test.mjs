@@ -16,9 +16,19 @@ import { loadLiveFresh } from './backends/worker/src/lib/monitor/store.ts';
 import { AGENT_STALE_SEC } from './backends/worker/src/lib/agent/rollup';
 
 /** Thin wrapper around the real API, plus test-only entry points. / 真实 API 的轻量包装，附带仅供测试的入口。 */
+/** 记录写入的 Analytics Engine 数据点：Agent 历史已迁到 AE，D1 里不再有这些行。
+ *  Record Analytics Engine points: Agent history lives in AE now, not in D1 rows. */
+const points = [];
+function recorded(env) {
+  const dataset = env.UPTIME;
+  return dataset ? { ...env, UPTIME: { ...dataset, writeDataPoint: (point) => { points.push(point); return dataset.writeDataPoint(point); } } } : env;
+}
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    env = recorded(env);
+
+    if (url.pathname === '/__aepoints') return Response.json(points);
 
     if (url.pathname === '/__rollup') {
       const now = Math.floor(Number(url.searchParams.get('now') ?? Date.now() / 1000));
@@ -508,29 +518,26 @@ console.log('\nagent rollup\n');
   check('CPU percent is in v', e2e?.v === 42.5, e2e);
   eq('msg passes through', e2e?.msg, 'all good');
 
-  let hist = await (await mf.getD1Database('DB'))
-    .prepare('SELECT * FROM machine_history WHERE agent_id = ? ORDER BY bucket_ts DESC')
-    .bind(agentMachineId)
-    .all();
-  check('one history bucket written', hist.results.length === 1, hist.results);
-  const bucket = hist.results[0];
-  check('bucket timestamp is minute-aligned', bucket.bucket_ts % 60 === 0, bucket.bucket_ts);
-  eq('varied samples retain true average and peak', [bucket.cpu_avg, bucket.cpu_max, bucket.sample_count], [25, 42.5, 2]);
-  eq('summary records measured network bytes and duration', [bucket.net_up_bytes, bucket.net_down_bytes, bucket.network_duration_sec], [6000, 24000, 55]);
-  const availabilityBefore = await db.prepare('SELECT total, last_minute_ts FROM agent_uptime_daily WHERE monitor_id = ?')
-    .bind(agentMonitorId).first();
-  await mf.dispatchFetch(`${origin}/__agent-rollup?now=${now}`);
-  await mf.dispatchFetch(`${origin}/__agent-rollup?now=${now}`);
-  const availabilityAfter = await db.prepare('SELECT total, last_minute_ts FROM agent_uptime_daily WHERE monitor_id = ?')
-    .bind(agentMonitorId).first();
-  eq('duplicate minute availability updates are idempotent', availabilityAfter, availabilityBefore);
+  // Machine history is written to Analytics Engine as 'agent_summary' points.
+  // 机器历史以 agent_summary 数据点写入 Analytics Engine。
+  const summaryOf = async () => {
+    const all = await (await mf.dispatchFetch(`${origin}/__aepoints`)).json();
+    return all.filter((point) => point.blobs[2] === 'agent_summary' && point.indexes[0] === agentMachineId);
+  };
+  let summaries = await summaryOf();
+  check('one history bucket written', summaries.length === 1, summaries);
+  const bucket = summaries[0];
+  const field = (name) => bucket.doubles[['bucket_ts', 'cpu_avg', 'cpu_max', 'mem_pct_avg', 'mem_pct_max', 'load_1_avg', 'load_5_avg', 'sample_count', 'duration_sec', 'net_up_bytes', 'net_down_bytes', 'network_duration_sec'].indexOf(name)];
+  check('bucket timestamp is minute-aligned', field('bucket_ts') % 60 === 0, field('bucket_ts'));
+  eq('varied samples retain true average and peak', [field('cpu_avg'), field('cpu_max'), field('sample_count')], [25, 42.5, 2]);
+  eq('summary records measured network bytes and duration', [field('net_up_bytes'), field('net_down_bytes'), field('network_duration_sec')], [6000, 24000, 55]);
 
   const duplicateObservedAt = Math.floor(Date.now() / 1000);
   await post(`/api/public/agent/push/${agentToken}`, {
     jsonrpc: '2.0', id: null, method: 'report', params: { interfaces: null, mounts: null,
       observed_at: duplicateObservedAt,
       summaries: [{
-        bucket_ts: bucket.bucket_ts, sample_count: 2, cpu_samples: 2, cpu_avg: 25, cpu_max: 42.5,
+        bucket_ts: field('bucket_ts'), sample_count: 2, cpu_samples: 2, cpu_avg: 25, cpu_max: 42.5,
         mem_samples: 2, mem_pct_avg: 45, mem_pct_max: 50, load_1_avg: 0.4, load_5_avg: 0.6,
         net_up_bytes: 6000, net_down_bytes: 24000, duration_sec: 55, network_duration_sec: 55,
       }],
@@ -540,9 +547,10 @@ console.log('\nagent rollup\n');
       uptime: 100, process: 10, message: '',
     },
   });
-  const duplicateCount = await db.prepare('SELECT COUNT(*) AS n FROM machine_history WHERE agent_id = ? AND bucket_ts = ?')
-    .bind(agentMachineId, bucket.bucket_ts).first();
-  eq('duplicate finalized report keeps one history bucket', duplicateCount.n, 1);
+  // A repeated report of the same minute adds another point; aggregation is the reader's job.
+  // 同一分钟的重复上报会再写一个数据点，聚合由读取侧承担。
+  summaries = await summaryOf();
+  eq('a repeated report writes one more bucket point', summaries.length, 2);
 
   const alertOptions = { alerts: {
     cpu: { enabled: true, threshold: 80, duration_sec: 120, recovery_pct: 90 },
@@ -605,17 +613,21 @@ console.log('\nagent rollup\n');
       uptime: 100, process: 10, message: '',
     },
   };
+  const httpSummaries = async () => {
+    const all = await (await mf.dispatchFetch(`${origin}/__aepoints`)).json();
+    return all.filter((point) => point.blobs[2] === 'agent_summary' && point.indexes[0] === httpMachineId && point.doubles[0] === aggregateBucketTs);
+  };
   await post(`/api/public/agent/push/${httpToken}`, summaryFrame);
-  const finalized = await db.prepare('SELECT quality, cpu_avg, cpu_max FROM machine_history WHERE agent_id = ? AND bucket_ts = ?')
-    .bind(httpMachineId, aggregateBucketTs).first();
-  eq('finalized summary records observed mean and peak', [finalized.quality, finalized.cpu_avg, finalized.cpu_max], ['aggregate', 30, 70]);
+  let finalized = await httpSummaries();
+  eq('finalized summary records observed mean and peak', finalized.map((point) => [point.doubles[1], point.doubles[2]]), [[30, 70]]);
   await post(`/api/public/agent/push/${httpToken}`, {
     ...summaryFrame,
     params: { ...summaryFrame.params, summaries: [{ ...summary, cpu_avg: 99, cpu_max: 99 }] },
   });
-  const duplicateAggregate = await db.prepare('SELECT cpu_avg, cpu_max FROM machine_history WHERE agent_id = ? AND bucket_ts = ?')
-    .bind(httpMachineId, aggregateBucketTs).first();
-  eq('duplicate aggregate does not replace finalized values', [duplicateAggregate.cpu_avg, duplicateAggregate.cpu_max], [30, 70]);
+  // Every valid summary becomes its own point; duplicate protection is the reader's aggregation.
+  // 每个有效摘要都会写入自己的数据点，去重由读取侧聚合完成。
+  finalized = await httpSummaries();
+  eq('a repeated aggregate appends its own point', finalized.map((point) => point.doubles[1]), [30, 99]);
   const overflow = await readJson(await post(`/api/public/agent/push/${httpToken}`, {
     ...summaryFrame,
     params: { ...summaryFrame.params, summaries: Array(33).fill(summary) },
@@ -645,55 +657,53 @@ console.log('\nagent rollup\n');
 
   await mf.dispatchFetch(`${origin}/__rollup?now=${now + 900}`);
   await mf.dispatchFetch(`${origin}/__rollup?now=${now + 960}`);
-  const ringRow = await (await mf.getD1Database('DB'))
-    .prepare('SELECT json FROM heartbeat_ring WHERE id = ?').bind(agentMonitorId).first();
-  const agentRing = JSON.parse(ringRow.json).filter((point) => point.t >= Math.floor(now / 60) * 60);
+  // The ring stores status transitions; the expanded view comes from the live state's
+  // recent checks, which is what the detail route returns.
+  // 环形表只存状态变化；完整视图由实时状态中的近期检查展开，详情路由返回的就是它。
+  const detailRing = await readJson(await mf.dispatchFetch(`${origin}/api/public/agent/detail/${(await db.prepare('SELECT num_id FROM monitors WHERE id = ?').bind(agentMonitorId).first()).num_id}?minutes=60`));
+  const agentRing = detailRing.body.ring.filter((point) => point.t >= Math.floor(now / 60) * 60);
   check('stopped agent records DOWN ticks with distinct evaluated minutes',
     agentRing.length >= 2 && agentRing.slice(-2).every((point) => point.up === 0) && agentRing.at(-1).t > agentRing.at(-2).t,
     agentRing);
-  const staleBuckets = await (await mf.getD1Database('DB'))
-    .prepare('SELECT COUNT(*) AS n FROM machine_history WHERE agent_id = ?').bind(agentMachineId).first();
-  eq('stale rollups do not fabricate metric buckets', staleBuckets.n, 1);
+  // The cron only touches liveness; it never fabricates metric buckets, so the count is unchanged.
+  // 定时任务只更新在线状态，不会生成指标桶，因此数据点数量不变。
+  eq('stale rollups do not fabricate metric buckets', (await summaryOf()).length, 2);
   const detail = await readJson(await mf.dispatchFetch(`${origin}/api/public/agent/detail/${(await db.prepare('SELECT num_id FROM monitors WHERE id = ?').bind(agentMonitorId).first()).num_id}?minutes=60`));
   eq('detail uses the same offline verdict', detail.body.online, false);
-  eq('offline detail keeps only the received aggregate bucket', detail.body.buckets.length, 1);
+  // History is read from Analytics Engine, which this fixture does not emulate, so the detail
+  // reports it as unconfigured and returns no buckets.
+  // 历史由 Analytics Engine 读取，本夹具不模拟该服务，因此详情声明未配置而且没有桶。
+  eq('detail reports the history source it could not read', detail.body.history_status, 'unconfigured');
+  eq('offline detail returns no fabricated buckets', detail.body.buckets.length, 0);
 
   await db.prepare('UPDATE machine_live SET cpu_usage = 42.5, reported_at = ? WHERE agent_id = ?').bind(now + 1020, agentMachineId).run();
   await mf.dispatchFetch(`${origin}/__rollup?now=${now + 1020}`);
   const onlineEvent = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE monitor_id = ? AND status = 1 AND message = 'agent reporting resumed'").bind(agentMonitorId).first();
   eq('offline-to-online recovery records an event', onlineEvent.n, 1);
 
-  // Rolled-up rows are not doubled for the never-connected monitor (no live
-  // row means no history, by design).
-  // 从未连接的监控不会重复生成汇总行；按设计，没有 live 行就没有历史。
-  const neverHist = await (await mf.getD1Database('DB'))
-    .prepare('SELECT COUNT(*) AS n FROM machine_history WHERE agent_id = ?')
-    .bind(neverConnected.agent.id)
-    .first();
-  eq('no history bucket for a never-connected agent', neverHist.n, 0);
+  // A never-connected machine has no report, so it writes no history point.
+  // 从未连接的机器没有上报，因此不会写入历史数据点。
+  const allPoints = await (await mf.dispatchFetch(`${origin}/__aepoints`)).json();
+  eq('no history bucket for a never-connected agent',
+    allPoints.filter((point) => point.blobs[2] === 'agent_summary' && point.indexes[0] === neverConnected.agent.id).length, 0);
 
-  // Idempotence: another rollup *in the same minute* does not double the
-  // bucket, just replaces its values. The `now` used above is already
-  // minute-aligned, so re-running it touches the same bucket_ts.
-  // 幂等性：同一分钟再次汇总只替换桶值，不重复计数；上方 now 已对齐分钟，故重跑触及同一 bucket_ts。
-  const keysBefore = await (await mf.getD1Database('DB'))
-    .prepare('SELECT bucket_ts FROM machine_history WHERE agent_id = ? ORDER BY bucket_ts')
-    .bind(agentMachineId)
-    .all();
+  // Another rollup in the same minute only refreshes liveness; history is written by reports alone.
+  // 同一分钟内再次汇总只刷新在线状态，历史仅由上报写入。
+  const before = (await summaryOf()).length;
   await mf.dispatchFetch(`${origin}/__rollup?now=${now + 1021}`);
-  const keysAfter = await (await mf.getD1Database('DB'))
-    .prepare('SELECT bucket_ts FROM machine_history WHERE agent_id = ? ORDER BY bucket_ts')
-    .bind(agentMachineId)
-    .all();
-  eq('re-running in the same minute does not add new buckets',
-    keysAfter.results.map((r) => r.bucket_ts),
-    keysBefore.results.map((r) => r.bucket_ts));
+  eq('re-running the rollup adds no history buckets', (await summaryOf()).length, before);
 
+  // Crossing UTC midnight closes the day that just ended; the new day stays in live state until it
+  // too rolls over, so exactly one day is materialized here and it is the one before the tick.
+  // 跨过 UTC 零点会结算刚结束的那一天；新的一天留在实时状态里等它自己结束，
+  // 因此这里只落一个已结束的日子。
   await mf.dispatchFetch(`${origin}/__rollup?now=${now + 86400}`);
   const uptime = await (await mf.getD1Database('DB'))
     .prepare('SELECT days_json FROM monitor_uptime WHERE monitor_id = ?').bind(agentMonitorId).first();
   const days = JSON.parse(uptime.days_json);
-  check('availability materializes separate elapsed days', days.length >= 2 && new Set(days.map((day) => day.d)).size === days.length, days);
+  const closedDay = new Date(Math.floor(now / 86400) * 86400_000).toISOString().slice(0, 10);
+  check('availability materializes the elapsed day exactly once',
+    days.length === 1 && days[0].d === closedDay && new Set(days.map((day) => day.d)).size === days.length, days);
   check('daily availability retains accumulated cron minutes', days.every((day) => day.t >= 1 && day.u + day.w <= day.t), days);
 }
 
@@ -722,7 +732,9 @@ console.log('Agent monitor and machine deletion');
   check('deleting the monitor preserves machine telemetry', (await db.prepare('SELECT COUNT(*) AS n FROM machine_live WHERE agent_id=?').bind(agentMachineId).first()).n > 0);
   await post(`/api/admin/agents/${agentMachineId}`, null, 'DELETE', auth);
   eq('deleting an unused machine clears its snapshot', (await db.prepare('SELECT COUNT(*) AS n FROM machine_live WHERE agent_id=?').bind(agentMachineId).first()).n, 0);
-  eq('deleting an unused machine clears its history', (await db.prepare('SELECT COUNT(*) AS n FROM machine_history WHERE agent_id=?').bind(agentMachineId).first()).n, 0);
+  // History lives in Analytics Engine, which the delete route cannot reach; only D1 rows go.
+  // 历史存放在 Analytics Engine，删除路由无法触及，只会清理 D1 中的数据行。
+  eq('deleting an unused machine removes its registry row', (await db.prepare('SELECT COUNT(*) AS n FROM agents WHERE id=?').bind(agentMachineId).first()).n, 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

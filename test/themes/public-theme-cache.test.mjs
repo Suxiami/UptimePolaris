@@ -36,8 +36,11 @@ async function checkExample(target) {
   const document = { body: { dataset: { target } }, documentElement: root, title: '',
     getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
     createElement: element, createTextNode: (text) => text };
-  const config = { presentation: { locale: 'en', colorMode: 'light' }, siteMeta: { title: 'Site' },
-    theme_settings: { accent: '#123456', headline: 'Custom title', description: 'Custom description' }, theme_content_html: '<b>Custom content</b>' };
+  // The page title and description come from siteMeta; theme settings only style the page.
+  // 页面标题和描述来自 siteMeta，主题设置只负责外观。
+  const config = { presentation: { locale: 'en', colorMode: 'light' },
+    siteMeta: { title: 'Custom title', description: 'Custom description' },
+    theme_settings: { accent: '#123456' }, theme_content_html: '<b>Custom content</b>' };
   const sdk = { read: async (method) => method === 'config' ? config : target === 'agent' ? { servers: [] } : { monitors: [] } };
   vm.runInNewContext(readFileSync('examples/themes/polaris-simple/app.js', 'utf8'), { document, window: { polarisTheme: sdk }, navigator: { language: 'en' }, Intl, Date });
   await new Promise((resolve) => setImmediate(resolve));
@@ -153,14 +156,18 @@ try {
     const fresh = await freshConfig();
     assert.equal(fresh.theme_settings.headline, 'saved first');
     assert.deepEqual(Object.keys(fresh).sort(), Object.keys(activated.body).sort());
-    await publish(first.versionKey, 'saved second');
+    await publish(first.versionKey, 'saved second', headCode, contentHtml);
     assert.equal((await freshConfig()).theme_settings.headline, 'saved second');
+    // Installing a new package of the active theme advances the page to it, keeping saved
+    // options that the new manifest still defines.
+    // 上传当前启用主题的新版本会直接切换页面到新版本，并保留新清单中仍存在的已保存选项。
     const second = await upload('2.0.0');
+    assert.equal((await freshConfig()).theme.version, second.versionKey);
     assert.equal((await freshConfig()).theme_settings.headline, 'saved second');
-    const inactivePreview = await request(originA, `/api/themes/${short}/preview?version=${encodeURIComponent(second.versionKey)}&theme=monitor`, { headers: auth });
-    assert.equal(inactivePreview.status, 200, JSON.stringify(inactivePreview.body));
-    assert.equal(inactivePreview.body.headCode, '');
-    assert.equal(inactivePreview.body.values.headline, '2.0.0');
+    const activePreview = await request(originA, `/api/themes/${short}/preview?version=${encodeURIComponent(second.versionKey)}&theme=monitor`, { headers: auth });
+    assert.equal(activePreview.status, 200, JSON.stringify(activePreview.body));
+    assert.equal(activePreview.body.headCode, headCode);
+    assert.equal(activePreview.body.values.headline, 'saved second');
     await publish(second.versionKey, 'version two');
     assert.equal((await freshConfig()).theme.version, second.versionKey);
     await publish(first.versionKey, 'saved first');
