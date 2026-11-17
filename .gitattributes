@@ -1,0 +1,11 @@
+# 迁移文件和生成的结构文件必须保持 LF：生成器按字节内联 SQL，
+# 换行随检出环境变化会让 schema:check 在 Windows 与 Linux 之间来回失败。
+# Migrations and the generated schema file must stay LF: the generator inlines SQL byte for byte,
+# so environment-dependent line endings make schema:check fail back and forth between Windows and Linux.
+database/schema/**/*.sql text eol=lf
+backends/worker/src/lib/db/schema-bootstrap.ts text eol=lf
+backends/worker/src/lib/db/postgres-schema.ts text eol=lf
+
+# 示例主题的 ZIP 以二进制存放，不能被换行转换破坏。
+# The example theme ZIP is stored as binary and must not be rewritten by line-ending conversion.
+examples/themes/**/*.zip -text

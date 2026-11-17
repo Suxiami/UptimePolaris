@@ -251,20 +251,20 @@ export const BOOTSTRAP_FILES: readonly BootstrapFile[] = [
   {
     name: "0029_agent_commands.sql",
     statements: [
-      "CREATE TABLE IF NOT EXISTS agent_commands (\r\n  id             TEXT PRIMARY KEY,\r\n  agent_id       TEXT NOT NULL,\r\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report')),\r\n  queued_at      INTEGER NOT NULL,\r\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\r\n  lease_token    TEXT,\r\n  lease_until    INTEGER,\r\n  attempts       INTEGER NOT NULL DEFAULT 0,\r\n  ok             INTEGER,\r\n  message        TEXT,\r\n  completed_at   INTEGER,\r\n  issued_by      TEXT\r\n)",
-      "CREATE INDEX IF NOT EXISTS idx_agent_commands_poll\r\n  ON agent_commands(agent_id, state, queued_at)",
-      "CREATE INDEX IF NOT EXISTS idx_agent_commands_recent\r\n  ON agent_commands(agent_id, queued_at DESC)",
+      "CREATE TABLE IF NOT EXISTS agent_commands (\n  id             TEXT PRIMARY KEY,\n  agent_id       TEXT NOT NULL,\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report')),\n  queued_at      INTEGER NOT NULL,\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\n  lease_token    TEXT,\n  lease_until    INTEGER,\n  attempts       INTEGER NOT NULL DEFAULT 0,\n  ok             INTEGER,\n  message        TEXT,\n  completed_at   INTEGER,\n  issued_by      TEXT\n)",
+      "CREATE INDEX IF NOT EXISTS idx_agent_commands_poll\n  ON agent_commands(agent_id, state, queued_at)",
+      "CREATE INDEX IF NOT EXISTS idx_agent_commands_recent\n  ON agent_commands(agent_id, queued_at DESC)",
     ],
   },
   {
     name: "0030_agent_check_update.sql",
     statements: [
-      "CREATE TABLE agent_commands_new (\r\n  id             TEXT PRIMARY KEY,\r\n  agent_id       TEXT NOT NULL,\r\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report', 'check_update')),\r\n  queued_at      INTEGER NOT NULL,\r\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\r\n  lease_token    TEXT,\r\n  lease_until    INTEGER,\r\n  attempts       INTEGER NOT NULL DEFAULT 0,\r\n  ok             INTEGER,\r\n  message        TEXT,\r\n  completed_at   INTEGER,\r\n  issued_by      TEXT\r\n)",
-      "INSERT INTO agent_commands_new\r\n  (id, agent_id, action, queued_at, state, lease_token, lease_until, attempts, ok, message, completed_at, issued_by)\r\n  SELECT\r\n   id, agent_id, action, queued_at, state, lease_token, lease_until, attempts, ok, message, completed_at, issued_by\r\n  FROM agent_commands",
+      "CREATE TABLE agent_commands_new (\n  id             TEXT PRIMARY KEY,\n  agent_id       TEXT NOT NULL,\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report', 'check_update')),\n  queued_at      INTEGER NOT NULL,\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\n  lease_token    TEXT,\n  lease_until    INTEGER,\n  attempts       INTEGER NOT NULL DEFAULT 0,\n  ok             INTEGER,\n  message        TEXT,\n  completed_at   INTEGER,\n  issued_by      TEXT\n)",
+      "INSERT INTO agent_commands_new\n  (id, agent_id, action, queued_at, state, lease_token, lease_until, attempts, ok, message, completed_at, issued_by)\n  SELECT\n   id, agent_id, action, queued_at, state, lease_token, lease_until, attempts, ok, message, completed_at, issued_by\n  FROM agent_commands",
       "DROP TABLE agent_commands",
       "ALTER TABLE agent_commands_new RENAME TO agent_commands",
-      "CREATE INDEX IF NOT EXISTS idx_agent_commands_poll\r\n  ON agent_commands(agent_id, state, queued_at)",
-      "CREATE INDEX IF NOT EXISTS idx_agent_commands_recent\r\n  ON agent_commands(agent_id, queued_at DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_agent_commands_poll\n  ON agent_commands(agent_id, state, queued_at)",
+      "CREATE INDEX IF NOT EXISTS idx_agent_commands_recent\n  ON agent_commands(agent_id, queued_at DESC)",
     ],
   },
   {
@@ -406,7 +406,7 @@ export const BOOTSTRAP_FILES: readonly BootstrapFile[] = [
   {
     name: "0044_agent_history_daily.sql",
     statements: [
-      "CREATE TABLE IF NOT EXISTS agent_history_daily (\r\n  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,\r\n  days_json TEXT NOT NULL,\r\n  updated_at INTEGER NOT NULL\r\n) WITHOUT ROWID",
+      "CREATE TABLE IF NOT EXISTS agent_history_daily (\n  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,\n  days_json TEXT NOT NULL,\n  updated_at INTEGER NOT NULL\n) WITHOUT ROWID",
     ],
   },
 ];

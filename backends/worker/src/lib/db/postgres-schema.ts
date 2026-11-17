@@ -30,11 +30,11 @@ export const POSTGRES_MIGRATIONS: readonly { name: string; sql: string }[] = [
   },
   {
     "name": "0010_agent_commands.postgres.sql",
-    "sql": "CREATE TABLE IF NOT EXISTS agent_commands (\r\n  id             TEXT PRIMARY KEY,\r\n  agent_id       TEXT NOT NULL,\r\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report')),\r\n  queued_at      BIGINT NOT NULL,\r\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\r\n  lease_token    TEXT,\r\n  lease_until    BIGINT,\r\n  attempts       INTEGER NOT NULL DEFAULT 0,\r\n  ok             SMALLINT,\r\n  message        TEXT,\r\n  completed_at   BIGINT,\r\n  issued_by      TEXT\r\n);\r\n\r\nCREATE INDEX IF NOT EXISTS idx_agent_commands_poll\r\n  ON agent_commands(agent_id, state, queued_at);\r\n\r\nCREATE INDEX IF NOT EXISTS idx_agent_commands_recent\r\n  ON agent_commands(agent_id, queued_at DESC);\r\n"
+    "sql": "CREATE TABLE IF NOT EXISTS agent_commands (\n  id             TEXT PRIMARY KEY,\n  agent_id       TEXT NOT NULL,\n  action         TEXT NOT NULL CHECK (action IN ('upgrade', 'restart', 're_report')),\n  queued_at      BIGINT NOT NULL,\n  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'leased', 'completed', 'expired')),\n  lease_token    TEXT,\n  lease_until    BIGINT,\n  attempts       INTEGER NOT NULL DEFAULT 0,\n  ok             SMALLINT,\n  message        TEXT,\n  completed_at   BIGINT,\n  issued_by      TEXT\n);\n\nCREATE INDEX IF NOT EXISTS idx_agent_commands_poll\n  ON agent_commands(agent_id, state, queued_at);\n\nCREATE INDEX IF NOT EXISTS idx_agent_commands_recent\n  ON agent_commands(agent_id, queued_at DESC);\n"
   },
   {
     "name": "0011_agent_check_update.postgres.sql",
-    "sql": "-- Widen the agent_commands action CHECK to admit `check_update`.\r\n-- 扩展 agent_commands 的 action CHECK，允许 `check_update`。\r\n--\r\n-- The constraint was created inline in 0010, so Postgres named it\r\n-- agent_commands_action_check. Dropping by that name and re-adding narrows the\r\n-- window between the two statements to this transaction.\r\n-- 该约束在 0010 中内联创建，因此 Postgres 将其命名为\r\n-- agent_commands_action_check。按名称删除后重新添加，使两条语句间的窗口限于此事务。\r\nALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS agent_commands_action_check;\r\n\r\nALTER TABLE agent_commands ADD CONSTRAINT agent_commands_action_check\r\n  CHECK (action IN ('upgrade', 'restart', 're_report', 'check_update'));\r\n"
+    "sql": "-- Widen the agent_commands action CHECK to admit `check_update`.\n-- 扩展 agent_commands 的 action CHECK，允许 `check_update`。\n--\n-- The constraint was created inline in 0010, so Postgres named it\n-- agent_commands_action_check. Dropping by that name and re-adding narrows the\n-- window between the two statements to this transaction.\n-- 该约束在 0010 中内联创建，因此 Postgres 将其命名为\n-- agent_commands_action_check。按名称删除后重新添加，使两条语句间的窗口限于此事务。\nALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS agent_commands_action_check;\n\nALTER TABLE agent_commands ADD CONSTRAINT agent_commands_action_check\n  CHECK (action IN ('upgrade', 'restart', 're_report', 'check_update'));\n"
   },
   {
     "name": "0012_notification_deliveries.postgres.sql",
@@ -86,6 +86,6 @@ export const POSTGRES_MIGRATIONS: readonly { name: string; sql: string }[] = [
   },
   {
     "name": "0025_agent_history_daily.postgres.sql",
-    "sql": "CREATE TABLE IF NOT EXISTS agent_history_daily (\r\n  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,\r\n  days_json TEXT NOT NULL,\r\n  updated_at BIGINT NOT NULL\r\n);\r\n"
+    "sql": "CREATE TABLE IF NOT EXISTS agent_history_daily (\n  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,\n  days_json TEXT NOT NULL,\n  updated_at BIGINT NOT NULL\n);\n"
   }
 ];

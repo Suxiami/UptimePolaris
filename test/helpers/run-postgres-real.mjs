@@ -34,10 +34,22 @@ try {
   pgCtl = find('pg_ctl');
   execFileSync(initdb, ['-D', dataDir, '-U', 'postgres', '--auth=trust', '--no-locale', '--encoding=UTF8'], { stdio: 'inherit' });
   startAttempted = true;
-  execFileSync(pgCtl, [
-    '-D', dataDir, '-l', join(root, 'postgres.log'),
-    '-o', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1`, '-w', 'start',
-  ], { stdio: 'inherit', windowsHide: true });
+  try {
+    // 发行版的 initdb 会把 Unix 套接字目录设为 /var/run/postgresql，CI 用户写不了那个目录，
+    // postmaster 会立刻退出。把套接字留在本次临时目录里，配合 TCP 只监听回环。
+    // Distribution initdb sets unix_socket_directories to /var/run/postgresql, which CI users cannot write,
+    // so the postmaster exits immediately. Keep sockets in the temp directory and listen on loopback only.
+    execFileSync(pgCtl, [
+      '-D', dataDir, '-l', join(root, 'postgres.log'),
+      '-o', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1 -c unix_socket_directories=${root.replaceAll('\\', '/')}`, '-w', 'start',
+    ], { stdio: 'inherit', windowsHide: true });
+  } catch (error) {
+    // 服务端日志只写到临时目录，清理后无法复查，因此失败时立即转出。
+    // The server log lands in the temp directory and is deleted on cleanup, so surface it here.
+    const log = join(root, 'postgres.log');
+    if (existsSync(log)) process.stderr.write(`\n--- postgres.log ---\n${readFileSync(log, 'utf8')}\n--- end postgres.log ---\n`);
+    throw error;
+  }
   await build({
     entryPoints: ['test/db/postgres-real.test.mjs'],
     outfile: output,

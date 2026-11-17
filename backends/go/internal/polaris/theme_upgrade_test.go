@@ -32,7 +32,13 @@ func TestThemeUpgradeReplacesSelection(t *testing.T) {
 		t.Fatal("theme list includes an obsolete version", listed)
 	}
 	manifest["version"] = "3.0.0"
-	object(array(manifest["themes"])[0])["id"] = "renamed"
+	// 夹具直接构造 []Object，array 只认解码得到的 []any，所以这里按类型取第一项。
+	// The fixture builds []Object directly; array only unwraps decoded []any, so index the typed slice.
+	definitions, ok := manifest["themes"].([]Object)
+	if !ok || len(definitions) == 0 {
+		t.Fatal("fixture manifest has no themes")
+	}
+	definitions[0]["id"] = "renamed"
 	code, rejected := s.upload(t, packageZip(t, manifest, nil))
 	expectStatus(t, code, 409, rejected)
 	_, unchanged := s.request(t, "GET", "/api/admin/presentation", nil, true)

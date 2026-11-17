@@ -99,6 +99,12 @@ func (s *testServer) request(t *testing.T, method, path string, value any, admin
 	}
 	return response.StatusCode, out
 }
+// normalizeNewlines drops carriage returns so a CRLF checkout compares equal to the LF ZIP entry.
+// 去掉回车符，使 CRLF 检出的文件与 LF 的 ZIP 条目可以比较。
+func normalizeNewlines(value []byte) []byte {
+	return bytes.ReplaceAll(value, []byte("\r\n"), []byte("\n"))
+}
+
 func expectStatus(t *testing.T, got, want int, result Object) {
 	t.Helper()
 	if got != want {
@@ -420,7 +426,11 @@ func TestExampleThemePackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(source, files["polaris-theme.json"]) || str(manifest, "id") != "polaris-simple" || len(array(manifest["themes"])) != 2 {
+	// 源文件在检出时可能被转成 CRLF，ZIP 内保持打包时的字节；比较前统一换行，
+	// 只验证打包内容与源文件一致，不把检出环境的换行策略当成发布缺陷。
+	// Checkouts may rewrite the source to CRLF while the ZIP keeps its packaged bytes; normalize before
+	// comparing so the assertion covers packaging drift, not the checkout's line-ending policy.
+	if !bytes.Equal(normalizeNewlines(source), normalizeNewlines(files["polaris-theme.json"])) || str(manifest, "id") != "polaris-simple" || len(array(manifest["themes"])) != 2 {
 		t.Fatal("shipped manifest differs from the source", manifest)
 	}
 	s := newTestServer(t)

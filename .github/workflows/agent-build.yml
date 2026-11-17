@@ -13,9 +13,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/polaris-agent-target
-      AGENT_NATIVE_BINARY: ${{ runner.temp }}/polaris-agent-target/debug/polaris-agent.exe
-      AGENT_RUNTIME_TEST_BIN: ${{ runner.temp }}/polaris-agent-target/debug/polaris-agent.exe
+      # runner 上下文只在 step 内可用，job 级 env 里引用会让整个工作流校验失败。
+      # The runner context is only available inside steps; using it in job-level env fails workflow validation.
       UPTIME_AGENT_NATIVE_REQUIRED: '1'
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +27,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Point the Agent tests at the build output
+        shell: bash
+        run: |
+          {
+            echo "CARGO_TARGET_DIR=$RUNNER_TEMP/polaris-agent-target"
+            echo "AGENT_NATIVE_BINARY=$RUNNER_TEMP/polaris-agent-target/debug/polaris-agent.exe"
+            echo "AGENT_RUNTIME_TEST_BIN=$RUNNER_TEMP/polaris-agent-target/debug/polaris-agent.exe"
+          } >> "$GITHUB_ENV"
       - run: npm ci
       - run: cargo build --locked --manifest-path agent/Cargo.toml
       - run: npm run test:agent-native

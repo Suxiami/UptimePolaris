@@ -14,11 +14,18 @@ const root = resolve(import.meta.dirname, '../..');
 const GENERATED = resolve(root, 'backends/worker/src/lib/db/schema-bootstrap.ts');
 const GENERATED_POSTGRES = resolve(root, 'backends/worker/src/lib/db/postgres-schema.ts');
 
+// 迁移文件在索引里是 LF，但 Windows 检出会把工作区改成 CRLF；生成结果按字节内联 SQL，
+// 直接读取会让同一份迁移生成两种输出，schema:check 因此在平台间来回失败。
+// Migrations are LF in the index but a Windows checkout rewrites the working copy to CRLF.
+// The generator inlines SQL byte for byte, so reading as-is produces two different outputs for one migration
+// and schema:check fails back and forth between platforms.
+const readMigration = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+
 export function postgresMigrationPlan(directory = resolve(root, 'database/schema/postgres')) {
   return readdirSync(directory)
     .filter((name) => name.endsWith('.postgres.sql'))
     .sort()
-    .map((name) => ({ name, sql: readFileSync(resolve(directory, name), 'utf8') }));
+    .map((name) => ({ name, sql: readMigration(resolve(directory, name)) }));
 }
 
 export function renderPostgres(plan) {
@@ -70,7 +77,7 @@ export function migrationPlan(directory = resolve(root, 'database/schema/d1')) {
     .sort()
     .map((name) => ({
       name,
-      statements: statementsOf(readFileSync(resolve(directory, name), 'utf8')),
+      statements: statementsOf(readMigration(resolve(directory, name))),
     }));
 }
 
