@@ -419,7 +419,7 @@ export function MonitorsPage() {
             <Button size="sm" variant="light" className="ml-auto" isDisabled={busy === 'visibility'} onPress={() => setSelected(new Set())}>{t('list.clearSelection')}</Button>
         </MotionDisclosure>
 
-        <section className={clsx('polaris-card flex min-h-[22rem] flex-col overflow-hidden', isValidating && data && 'polaris-sweep')}>
+        <section className={clsx('polaris-card flex min-h-[22rem] flex-1 flex-col overflow-hidden', isValidating && data && 'polaris-sweep')}>
           {/* Toolbar: the status filter on the left, finding and narrowing on the right. / 工具栏左侧为状态筛选，右侧用于查找和缩小范围。 */}
           <div className="flex flex-wrap items-center gap-2 border-b border-[var(--polaris-line)] px-3 py-2.5">
             <Segmented
