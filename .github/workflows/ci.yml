@@ -135,7 +135,10 @@ jobs:
             const postgres = common + '[vars]\nDATABASE_TYPE="postgres"\n';
             assert.deepEqual(validateConfigBindings(postgres).errors, []);
             assert.deepEqual(validateConfigBindings(common + d1).errors, []);
-            assert(validateConfigBindings(common).errors.some((error) => error.includes('requires')));
+            // Without a DB binding the backend is PostgreSQL, so no binding is required.
+            // 未绑定 DB 时按 PostgreSQL 处理，因此不要求任何数据库绑定。
+            assert.deepEqual(validateConfigBindings(common).errors, []);
+            assert.equal(validateConfigBindings(common).backend, 'postgres');
             assert(validateConfigBindings(postgres.replace('binding="ASSETS"', 'binding="OTHER"')).errors.length);
             assert(validateConfigBindings(postgres + '[[r2_buckets]]\nbinding="THEMES"\n').errors.length);
             assert(validateConfigBindings(postgres + '[[analytics_engine_datasets]]\nbinding="UPTIME"\n').errors.length);
