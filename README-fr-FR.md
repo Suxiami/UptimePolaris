@@ -52,7 +52,7 @@ Les types de monitors et chaque champ sont décrits dans le [guide d'utilisation
 
 - `polaris-agent` remonte le CPU, la mémoire, le disque, la charge, le réseau et les points de montage sous Linux, macOS et Windows ; Docker est pris en charge sous Linux.
 - Les règles de ressources combinent un seuil et une durée, si bien que seules des mesures durables déclenchent une alerte. Le retour à la normale se fait selon un pourcentage du seuil, ce qui stabilise les valeurs proches de la limite.
-- La page de statut des machines est facultative, avec recherche, filtres, vue cartographique et comparaison de 2 à 4 machines. Elle est désactivée par défaut et les machines restent réservées à l'administration jusqu'à leur publication.
+- La page de statut des machines est facultative, avec recherche, filtres, vue cartographique et comparaison de 2 à 4 machines. Elle est désactivée par défaut ; les nouvelles machines sont marquées comme publiques et apparaissent dès que vous l'activez.
 
 Installation, gestion et mises à jour sont décrites dans le [guide de l'Agent](docs/agents.md).
 

@@ -52,7 +52,7 @@ Os tipos de monitor e todos os campos estão no [guia de uso](docs/usage.md).
 
 - O `polaris-agent` reporta CPU, memória, disco, carga, rede e pontos de montagem no Linux, macOS e Windows; o Docker é suportado no Linux.
 - As regras de recurso usam um limite e uma duração, então só leituras sustentadas geram alerta. A recuperação é uma porcentagem do limite, o que estabiliza leituras que oscilam perto dele.
-- A página de status das máquinas é opcional, com busca, filtros, visão de mapa e comparação de 2 a 4 máquinas. Fica desligada por padrão e as máquinas permanecem visíveis apenas para a administração até serem publicadas.
+- A página de status das máquinas é opcional, com busca, filtros, visão de mapa e comparação de 2 a 4 máquinas. Fica desligada por padrão; máquinas novas são marcadas como públicas e aparecem assim que você a ativa.
 
 Instalação, gerenciamento e atualizações estão no [guia do Agent](docs/agents.md).
 

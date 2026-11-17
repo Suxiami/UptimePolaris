@@ -52,7 +52,7 @@ Monitor types and every field are in the [usage guide](docs/usage.md).
 
 - `polaris-agent` reports CPU, memory, disk, load, network and mount points on Linux, macOS and Windows; Docker is supported on Linux.
 - Resource rules take a threshold and a duration, so only sustained readings raise an alert. Recovery is a percentage of the threshold, which settles readings that hover near the limit.
-- The machine status page is opt-in, with search, filters and a map view, plus side-by-side comparison of 2 to 4 machines. It is off by default and machines stay admin-only until you publish them.
+- The machine status page is opt-in, with search, filters and a map view, plus side-by-side comparison of 2 to 4 machines. The page is off by default; new machines are marked for publication and appear once you enable it.
 
 Installation, management and updates are in the [Agent guide](docs/agents.md).
 
