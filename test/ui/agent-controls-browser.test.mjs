@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { build } from 'esbuild';
@@ -20,6 +20,20 @@ const profile = await mkdtemp(join(tmpdir(), 'polaris-agent-controls-'));
 // 截图会保留以供查看；全新检出的仓库还没有 artifacts 目录。
 await mkdir('artifacts/tmp', { recursive: true });
 await writeFile(join(profile, '.owner'), owner);
+/* Chrome comes from the CI-provided binary or the usual per-platform install locations.
+ * Chrome 优先使用 CI 提供的路径，其次使用各平台的常见安装位置。 */
+const chromeCandidates = [
+  process.env.CHROME_BIN,
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe'),
+].filter(Boolean);
+let chrome = null;
+for (const candidate of chromeCandidates) {
+  try { if ((await stat(candidate)).isFile()) { chrome = candidate; break; } } catch { /* try the next one / 试下一个 */ }
+}
+if (!chrome) throw new Error('Agent controls browser test requires Chrome: set CHROME_BIN');
 /*
  * The fleet resolves the newest release over the network. Replace that module with a fixed
  * manifest so "behind" and the upgrade button are deterministic and nothing leaves the process.
@@ -159,7 +173,7 @@ try {
   });
   await new Promise((done) => staticServer.listen(0, '127.0.0.1', done));
   const origin = `http://127.0.0.1:${staticServer.address().port}`;
-  browser = spawn('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', [
+  browser = spawn(chrome, [
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-gpu',
     '--window-size=1440,1000', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
   ], { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] });
