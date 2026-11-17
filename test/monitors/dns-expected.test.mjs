@@ -28,7 +28,7 @@ for (const [input] of expectedInputs) {
 assert.match(form, /const dnsError = dnsEnabled \? dnsExpectedError\(dnsRecordType, formOptions\.dns\?\.expected\)/);
 assert.match(form, /!invalidUdp && !dnsError && canCreateWithSource/);
 assert.match(form, /if \(out\.type === 'dns' \|\| out\.check_dns === 1\)/, 'serialize the selected default A for DNS add-ons too');
-assert.match(form, /async function handleSave\(\) \{\s*if \(!canSubmit\) return;/);
+assert.match(form, /async function handleSave\(\) \{\s*if \(!canSubmit \|\| savedPush\) return;/);
 assert.match(form, /async function handleTest\(\) \{\s*if \(!canSubmit \|\| testRequest\.current\) return;/);
 
 const worker = await build({

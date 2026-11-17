@@ -28,7 +28,12 @@ try {
   pgCtl = find('pg_ctl');
   execFileSync(initdb, ['-D', data, '-U', 'postgres', '--auth=trust', '--no-locale', '--encoding=UTF8'], { stdio: 'inherit', windowsHide: true });
   startAttempted = true;
-  execFileSync(pgCtl, ['-D', data, '-l', join(root, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1`, '-w', 'start'], { stdio: 'inherit', windowsHide: true, timeout: 20000 });
+  // 发行版的 initdb 会把 Unix 套接字目录设为 /var/run/postgresql，CI 用户写不了那个目录，
+  // postmaster 会立刻退出。把套接字留在本次临时目录里，同时只监听回环 TCP。
+  // The distribution's initdb sets the Unix socket directory to /var/run/postgresql, which the CI user
+  // cannot write, so the postmaster exits at once. Keep the socket in this temporary directory and
+  // listen on loopback TCP only.
+  execFileSync(pgCtl, ['-D', data, '-l', join(root, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1 -c unix_socket_directories=${root.replaceAll('\\', '/')}`, '-w', 'start'], { stdio: 'inherit', windowsHide: true, timeout: 20000 });
   execFileSync('go', ['-C', join(workspace, 'backends/go'), 'test', './internal/polaris', './cmd/polaris', '-run', '^Test(PostgresMigrationAndRuntime|OfflineMigration|OfflineMigrationCLI|SetupDatabasePostgres)$', '-count=1', '-v'], {
     cwd: workspace, stdio: 'inherit', windowsHide: true, timeout: 180000,
     env: { ...process.env, POLARIS_TEST_POSTGRES_URL: `postgres://postgres@127.0.0.1:${port}/postgres?sslmode=disable` },
