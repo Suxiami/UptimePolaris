@@ -45,7 +45,7 @@ const releaseFixture = {
   setup(builder) {
     builder.onResolve({ filter: /^\.\/release$/ }, (args) => args.importer.split(/[\\/]/).includes('agent') ? { path: 'release', namespace: 'release-fixture' } : undefined);
     builder.onLoad({ filter: /.*/, namespace: 'release-fixture' }, () => ({ contents: `
-      export const AGENT_RELEASE_REPOSITORY = 'XingLingQAQ/polaris-agent';
+      export const AGENT_RELEASE_REPOSITORY = 'XingLingQAQ/Polaris-Agent';
       export const PROBE_PLATFORMS = { 'linux-x86_64': '', 'linux-aarch64': '', 'windows-x86_64': '.exe', 'darwin-x86_64': '', 'darwin-aarch64': '' };
       const manifest = { repository: AGENT_RELEASE_REPOSITORY, tag: 'v0.4.0', version: '0.4.0',
         platforms: ['linux-x86_64', 'linux-aarch64', 'windows-x86_64'].map((key) => ({

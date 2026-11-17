@@ -9,7 +9,7 @@ const input = {
   mode: 'user' as const, sampleInterval: 5, reportInterval: 60,
 };
 const posix = buildInstallCommand(input, 'posix');
-assert.ok(posix.startsWith("curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' | sh -s -- "));
+assert.ok(posix.startsWith("curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.sh' | sh -s -- "));
 assert.match(posix, /--token 'tok'\\''en;\$\(whoami\)'/);
 assert.match(posix, /--platform 'linux-x86_64' --mode 'user'/);
 assert.doesNotMatch(posix, /--sample-interval|--report-interval|mktemp|installer=|POLARIS_AGENT_TOKEN|sh -c/);
@@ -25,7 +25,7 @@ const custom = buildInstallCommand({ ...input, installDir: "/opt/O'Brien agent",
 assert.match(custom, /'\/opt\/O'\\''Brien agent'/);
 assert.match(custom, /--service-name 'polaris.user'/);
 const windows = buildInstallCommand({ ...input, platformKey: 'windows-x86_64', registerCommand: false }, 'windows');
-assert.ok(windows.startsWith("& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1'))) "));
+assert.ok(windows.startsWith("& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.ps1'))) "));
 assert.match(windows, /-Endpoint 'https:\/\/host.test'/);
 assert.match(windows, /-Token /);
 assert.match(windows, /'tok''en;\$\(whoami\)'/);
@@ -41,7 +41,7 @@ assert.doesNotMatch(defaultWindows, /-Mode|-Platform|-SampleInterval|-ReportInte
 for (const origin of ['https://status.customer.example', 'https://monitor.example:9443', 'http://127.0.0.1:3884']) {
   for (const platform of ['linux', 'darwin', 'windows'] as const) {
     const url = agentInstallScriptUrl(platform);
-    assert.equal(url, `https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.${platform === 'windows' ? 'ps1' : 'sh'}`);
+    assert.equal(url, `https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.${platform === 'windows' ? 'ps1' : 'sh'}`);
     const command = buildInstallCommand({ ...input, endpoint: origin, platformKey: `${platform}-x86_64` }, platform === 'windows' ? 'windows' : 'posix');
     assert.ok(command.includes(url));
     assert.ok(command.includes(`'${origin}'`));

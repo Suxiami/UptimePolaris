@@ -39,13 +39,13 @@ Agent 探测支持 HTTP、TCP、SSL、域名到期和 DNS。SSL 每个 UTC 日�
 Linux / macOS 的默认系统安装形式：
 
 ```sh
-curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' | sh -s -- --endpoint 'https://status.example.com' --token 'TOKEN' --mode 'system'
+curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.sh' | sh -s -- --endpoint 'https://status.example.com' --token 'TOKEN' --mode 'system'
 ```
 
 Windows PowerShell：
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1'))) -Endpoint 'https://status.example.com' -Token 'TOKEN'
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.ps1'))) -Endpoint 'https://status.example.com' -Token 'TOKEN'
 ```
 
 把站点和 Token 换成控制台给出的实际值。安装和重新安装都直接向脚本传参。脚本从 GitHub 获取最新稳定版的 `manifest.json`，按同一版本下载二进制并校验文件大小和 SHA-256。Token 不会放进下载 URL，也不会发送给 GitHub。
@@ -213,14 +213,14 @@ POSIX 安装脚本重新安装时，会在替换配置和程序前保存私有�
 卸载由安装脚本执行，没有 `pa uninstall` 子命令。先从 Agent 仓库下载脚本，再传卸载选项：
 
 ```sh
-curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
+curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.sh' -o install.sh
 sh install.sh --uninstall
 ```
 
 Windows 下载实际执行的脚本：
 
 ```powershell
-Invoke-WebRequest 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.ps1' -OutFile install.ps1
+Invoke-WebRequest 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.ps1' -OutFile install.ps1
 & ./install.ps1 -Uninstall
 ```
 

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: XingLingQAQ/polaris-agent
+          repository: XingLingQAQ/Polaris-Agent
           path: agent
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4

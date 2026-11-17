@@ -18,7 +18,7 @@ Inclui uma página de status pública e um console de administração; a interfa
   <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&amp;logo=cloudflare&amp;logoColor=white" height="20" alt="Executado no Cloudflare Workers"></a>
   <a href="backends/go/README.md"><img src="https://img.shields.io/badge/Go-Backend-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" height="20" alt="Go backend"></a>
   <a href="frontend/README.md"><img src="https://img.shields.io/badge/React-TypeScript-3178C6?style=flat-square&amp;logo=react&amp;logoColor=white" height="20" alt="Frontend em React e TypeScript"></a>
-  <a href="https://github.com/XingLingQAQ/polaris-agent"><img src="https://img.shields.io/badge/Rust-Agent-93450A?style=flat-square&amp;logo=rust&amp;logoColor=white" height="20" alt="Polaris Agent em Rust"></a>
+  <a href="https://github.com/XingLingQAQ/Polaris-Agent"><img src="https://img.shields.io/badge/Rust-Agent-93450A?style=flat-square&amp;logo=rust&amp;logoColor=white" height="20" alt="Polaris Agent em Rust"></a>
   <a href="docs/configuration.md"><img src="https://img.shields.io/badge/Storage-D1%20%2F%20SQLite%20%2F%20PostgreSQL-4169E1?style=flat-square&amp;logo=postgresql&amp;logoColor=white" height="20" alt="Storage: D1, SQLite, PostgreSQL"></a>
 </p>
 
@@ -172,7 +172,7 @@ Faça backup do banco e do namespace KV `CONFIG` primeiro; o procedimento comple
 - **Agent**: baixe o script de instalação do repositório GitHub do Agent e execute o desinstalador:
 
   ```sh
-  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/polaris-agent/main/install.sh' -o install.sh
+  curl -fsSL 'https://raw.githubusercontent.com/XingLingQAQ/Polaris-Agent/main/install.sh' -o install.sh
   sh install.sh --uninstall
   ```
 
