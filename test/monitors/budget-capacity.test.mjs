@@ -87,7 +87,7 @@ export default { async fetch(request, env, ctx) {
     const ids = Array.from({ length: Number(url.searchParams.get('count')) }, (_, i) => 'missing-' + i);
     return withDBScope(env, async (scopedEnv) => {
       const rows = await loadHeartbeats(scopedEnv, ids);
-      return Response.json({ size: rows.size, usage: getDB(scopedEnv).getUsage() });
+      return Response.json({ size: rows.size, empty: [...rows.values()].filter((points) => points.length === 0).length, usage: getDB(scopedEnv).getUsage() });
     });
   }
   if (url.pathname === '/__exact') {
@@ -220,10 +220,15 @@ try {
   assert.equal(usage.body.limits.d1RowsRead, 5_000_000);
   assert.equal(usage.body.limits.subrequests, 50);
 
+  // Every requested id gets an entry, empty when nothing is stored, so the size is the request
+  // size. The route reads in batches of 80 plus the live state, so 101 ids cost three statements.
+  // 每个请求的 id 都会得到一条记录，未存有数据时为空，因此大小等于请求数量。
+  // 该路径按 80 个一批读取，另加一次实时状态，所以 101 个 id 只需三条语句。
   const chunked = await request('/__chunk?count=101');
-  assert.equal(chunked.body.size, 0);
-  assert.equal(chunked.body.usage.binding_requests, 2);
-  assert.equal(chunked.body.usage.statements, 2);
+  assert.equal(chunked.body.size, 101);
+  assert.equal(chunked.body.empty, 101);
+  assert.equal(chunked.body.usage.binding_requests, 3);
+  assert.equal(chunked.body.usage.statements, 3);
   const exact = await request(`/__exact?id=${created[0].body.id}`);
   assert.deepEqual(exact.body, { d: '2026-10-01', t: 2, u: 1, w: 0, avg: 12, exact: true });
 
