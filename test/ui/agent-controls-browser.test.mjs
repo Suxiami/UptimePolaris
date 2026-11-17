@@ -17,12 +17,42 @@ import { spaAssetService } from '../helpers/spa-assets.mjs';
 const owner = crypto.randomUUID();
 const profile = await mkdtemp(join(tmpdir(), 'polaris-agent-controls-'));
 await writeFile(join(profile, '.owner'), owner);
-const bundle = await build({ entryPoints: ['backends/worker/src/index.ts'], bundle: true, write: false, format: 'esm', target: 'es2022', plugins: workerBundlePlugins(), logLevel: 'error' });
+/*
+ * The fleet resolves the newest release over the network. Replace that module with a fixed
+ * manifest so "behind" and the upgrade button are deterministic and nothing leaves the process.
+ * 机器列表通过网络解析最新版本。用固定清单替换该模块，使“落后”状态和升级按钮可确定，
+ * 且进程不会发出任何外部请求。
+ */
+const releaseFixture = {
+  name: 'release-fixture',
+  setup(builder) {
+    builder.onResolve({ filter: /^\.\/release$/ }, (args) => args.importer.split(/[\\/]/).includes('agent') ? { path: 'release', namespace: 'release-fixture' } : undefined);
+    builder.onLoad({ filter: /.*/, namespace: 'release-fixture' }, () => ({ contents: `
+      export const AGENT_RELEASE_REPOSITORY = 'XingLingQAQ/polaris-agent';
+      export const PROBE_PLATFORMS = { 'linux-x86_64': '', 'linux-aarch64': '', 'windows-x86_64': '.exe', 'darwin-x86_64': '', 'darwin-aarch64': '' };
+      const manifest = { repository: AGENT_RELEASE_REPOSITORY, tag: 'v0.4.0', version: '0.4.0',
+        platforms: ['linux-x86_64', 'linux-aarch64', 'windows-x86_64'].map((key) => ({
+          key, file: 'polaris-agent-0.4.0-' + key + (key.startsWith('windows-') ? '.exe' : ''), version: '0.4.0', size: 1, sha256: 'a'.repeat(64),
+        })) };
+      export async function latestAgentRelease() { return manifest; }
+      export function cachedAgentRelease() { return manifest; }
+      export function releaseUrl(_manifest, file) { return 'https://example.invalid/' + file; }
+    ` }));
+  },
+};
+const bundle = await build({ entryPoints: ['backends/worker/src/index.ts'], bundle: true, write: false, format: 'esm', target: 'es2022', plugins: [...workerBundlePlugins(), releaseFixture], logLevel: 'error' });
 const mf = new Miniflare({
   modules: true, script: bundle.outputFiles[0].text, host: '127.0.0.1', port: 0,
   compatibilityDate: '2025-01-01', compatibilityFlags: ['nodejs_compat'], d1Databases: ['DB'], kvNamespaces: { CONFIG: 'agent-controls-config' },
+  // Setup refuses to run without the Analytics Engine dataset, so the console needs one bound.
+  // 初始化要求绑定 Analytics Engine 数据集，控制台才能继续。
+  analyticsEngineDatasets: { UPTIME: { dataset: 'agent_controls_fixture' } },
   bindings: { ADMIN_TOKEN: 'agent-browser-admin' },
-  serviceBindings: { ASSETS: { node: spaAssetService(resolve('public')) } },
+  // The fleet resolves the newest release over the network; serve a fixture manifest so
+  // "behind" and the upgrade button are deterministic. The redirect chain mirrors GitHub's:
+  // latest -> tagged asset path on github.com -> release-assets.githubusercontent.com.
+  // 机器列表通过网络解析最新版本；返回固定清单，使“落后”状态和升级按钮可确定。
+  // 重定向链模仿 GitHub：latest 跳转到带标签的 github.com 路径，再到 release-assets 域名。
 });
 let browser;
 let socket;
@@ -161,7 +191,9 @@ try {
   const click = (label, scope='document') => evaluate(`[...${scope}.querySelectorAll('button')].find(button=>button.textContent.trim()===${JSON.stringify(label)}).click()`);
   const dialog = "document.querySelector('[role=dialog]')";
   const probeInput = `${dialog}.querySelector('input[name=probe_enabled]')`;
-  const readProbeEnabled = async () => JSON.parse((await db.prepare('SELECT options_json FROM monitors WHERE id=?').bind(agent.id).first()).options_json).probe_enabled !== false;
+  // The probe switch lives on the machine row, not on a monitor.
+  // 探测开关保存在机器行上，而不是监控上。
+  const readProbeEnabled = async () => JSON.parse((await db.prepare('SELECT options_json FROM agents WHERE id=?').bind(agent.id).first()).options_json).probe_enabled !== false;
   // Existing rows may belong to the old page; require a new document before accepting them.
   // 旧页面也可能已有表格行，须先用标记确认新文档已加载。
   const reload = async () => {
@@ -198,7 +230,9 @@ try {
   assert.equal(await evaluate(`${dialog}.textContent.includes(${JSON.stringify(catalog.agent.howToInstall)})`),false);
   await click(catalog.agents.reinstall,dialog);
   const topDialog = "[...document.querySelectorAll('[role=dialog]')].at(-1)";
-  await until(`${topDialog}.querySelectorAll('code').length===3`);
+  // Three install commands plus the three `pa` shortcuts rendered by the command help block.
+  // 三条安装命令，加上命令帮助区渲染的三条 pa 快捷命令。
+  await until(`${topDialog}.querySelectorAll('code').length===6`);
   const reinstallText = await evaluate(`${topDialog}.textContent`);
   for (const platform of ['Linux', 'Windows', 'macOS']) assert.ok(reinstallText.includes(platform));
   assert.ok(!reinstallText.includes('--platform') && !reinstallText.includes('-platform'));
@@ -221,7 +255,7 @@ try {
   await evaluate(`(()=>{const input=${dialog}.querySelector('input[maxlength="200"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Renamed fixture');input.dispatchEvent(new Event('input',{bubbles:true}));${dialog}.querySelector('input[type=checkbox]').click();})()`);
   await click(catalog.action.save,dialog);
   await until(`${dialog}?.textContent.includes(${JSON.stringify(catalog.agents.savePartial)})`);
-  assert.equal((await db.prepare('SELECT name FROM monitors WHERE id=?').bind(agent.id).first()).name,'Renamed fixture');
+  assert.equal((await db.prepare('SELECT name FROM agents WHERE id=?').bind(agent.id).first()).name,'Renamed fixture');
   assert.equal(await readProbeEnabled(),false);
   const desired = await fetch(workerOrigin + '/api/admin/agents/' + agent.id + '/config',{headers:{authorization:'Bearer agent-browser-admin'}}).then(response=>response.json());
   assert.equal(desired.status,'pending');
@@ -231,7 +265,7 @@ try {
   await until(`${dialog}.textContent.includes(${JSON.stringify(catalog.agents.configSynced)})`);
   await click(catalog.action.save,dialog);
   await until(`!${dialog}`);
-  assert.equal((await db.prepare('SELECT active FROM monitors WHERE id=?').bind(agent.id).first()).active,0);
+  assert.equal((await db.prepare('SELECT active FROM agents WHERE id=?').bind(agent.id).first()).active,0);
   assert.equal(writes.filter(url=>url.endsWith('/rename')).length,1);
   assert.equal(writes.filter(url=>url.endsWith('/probe')).length,1);
   assert.equal(writes.filter(url=>url.endsWith('/config')).length,1);
@@ -255,7 +289,7 @@ try {
   assert.equal(await readProbeEnabled(),true);
   console.log('PASS Agent probe setting: read-only detail shows disabled status, failed save retains switch value for retry');
 
-  await db.prepare('UPDATE monitors SET active=1 WHERE id=?').bind(agent.id).run();
+  await db.prepare('UPDATE agents SET active=1 WHERE id=?').bind(agent.id).run();
   await reload();
   const versionButton = `[...document.querySelectorAll('tbody button[aria-label]')].find(button=>button.getAttribute('aria-label').includes('Renamed fixture')&&button.getBoundingClientRect().height>0)`;
   await evaluate(versionButton+'.click()');
@@ -265,7 +299,7 @@ try {
   await until(`document.body.textContent.includes(${JSON.stringify(catalog.agents.updateInProgress)})`);
   assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM agent_commands WHERE agent_id=? AND action='upgrade'").bind(agent.id).first()).n,1);
   await db.prepare("UPDATE agent_commands SET state='completed',ok=1,completed_at=? WHERE agent_id=?").bind(Math.floor(Date.now()/1000),agent.id).run();
-  await db.prepare("UPDATE machine_live SET version='0.4.0',reported_at=? WHERE monitor_id=?").bind(Math.floor(Date.now()/1000),agent.id).run();
+  await db.prepare("UPDATE machine_live SET version='0.4.0',reported_at=? WHERE agent_id=?").bind(Math.floor(Date.now()/1000),agent.id).run();
   await until(`document.body.textContent.includes(${JSON.stringify(catalog.agents.commandOk)}) && document.querySelector('tbody').textContent.includes('0.4.0')`);
   console.log('PASS Agent upgrade: version popover queues one command and reflects completion and refreshed version');
   await reload();
@@ -276,7 +310,9 @@ try {
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await pause(100);
   assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);
-  assert.equal(await evaluate(`${dialog}.querySelector('input[type=checkbox]').closest('label').lastElementChild.getBoundingClientRect().height<=22`),true);
+  // HeroUI's small switch track is 24px tall; anything larger means it grew on mobile.
+  // HeroUI 小号开关的轨道高 24px；超过该值说明它在手机上被放大了。
+  assert.equal(await evaluate(`${dialog}.querySelector('input[name=probe_enabled]').closest('label').lastElementChild.getBoundingClientRect().height<=24`),true);
   await writeFile('artifacts/tmp/agent-editor-mobile.png',Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));
   await click(catalog.agents.cancel,dialog);
   await until(`!${dialog}`);
@@ -295,7 +331,11 @@ try {
   }
   await reload();
   const rowFor=(name)=>`[...document.querySelectorAll('tbody tr')].find(row=>[...row.querySelectorAll('button')].some(button=>button.textContent.trim()===${JSON.stringify(name)}))`;
-  await evaluate(`${rowFor('Current Agent')}.querySelector('button[aria-label=${JSON.stringify(catalog.agents.remove)}]').click()`);
+  // Removal moved into the row's more-actions menu.
+  // 移除操作已移入该行的“更多操作”菜单。
+  await evaluate(`${rowFor('Current Agent')}.querySelector('button[aria-label=${JSON.stringify(catalog.agents.moreActions)}]').click()`);
+  await until(`[...document.querySelectorAll('[role=menuitem]')].some(item=>item.textContent.trim()===${JSON.stringify(catalog.agents.remove)})`);
+  await evaluate(`[...document.querySelectorAll('[role=menuitem]')].find(item=>item.textContent.trim()===${JSON.stringify(catalog.agents.remove)}).click()`);
   await until(`!!${dialog} && ${dialog}.textContent.includes('Current Agent')`);
   assert.equal(await evaluate(`${dialog}.querySelectorAll('li').length`),1);
   assert.equal(deletedRequests.length,0);

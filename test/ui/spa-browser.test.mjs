@@ -94,6 +94,11 @@ const mf = new Miniflare({
   bindings: { ADMIN_TOKEN: 'browser-fixture-bootstrap', PBKDF2_ITERATIONS: '3000' },
   d1Databases: { DB: 'uptime-polaris-browser-fixture' },
   r2Buckets: { THEMES: 'uptime-polaris-spa-theme-fixture' },
+  // Setup refuses to run without the settings namespace and the Analytics Engine dataset,
+  // so both are required for the console to get past the deployment check.
+  // 初始化要求设置命名空间与 Analytics Engine 数据集，否则控制台无法通过部署检查。
+  kvNamespaces: { CONFIG: 'uptime-polaris-browser-config' },
+  analyticsEngineDatasets: { UPTIME: { dataset: 'browser_fixture' } },
 });
 
 let browser;
@@ -129,10 +134,19 @@ try {
   checkpoint(`isolated schema applied (${migrations.length} migrations)`);
 
   const now = Math.floor(Date.now() / 1000);
+  // The machine comes first: the monitor references it by foreign key. It reports, so the agent
+  // page renders a live reading; the monitor's source stays unavailable because its probe is off.
+  // 先插入机器：监控通过外键引用它。机器有上报，Agent 页面可渲染实时读数；
+  // 监控来源仍不可用，因为其探测已停用。
+  await db.prepare(`INSERT INTO agents (id, name, token, active, options_json, created_at, updated_at, is_public)
+    VALUES (?, 'fixture machine', 'fixture-agent-token', 1, '{"probe_enabled":false}', ?, ?, 0)`)
+    .bind('00000000-0000-4000-8000-000000000002', now, now)
+    .run();
   await db.prepare(`INSERT INTO monitors
-    (id, num_id, name, type, target, options_json, active, created_at, updated_at)
-    VALUES (?, ?, ?, 'agent', '', ?, 1, ?, ?)`)
+    (id, num_id, name, type, target, agent_id, options_json, active, created_at, updated_at)
+    VALUES (?, ?, ?, 'agent', '', ?, ?, 1, ?, ?)`)
     .bind('00000000-0000-4000-8000-000000000001', 1, 'Unknown source fixture',
+      '00000000-0000-4000-8000-000000000002',
       JSON.stringify({ check_source: { type: 'agent', agent_id: '00000000-0000-4000-8000-000000000002' } }), now, now)
     .run();
   await db.prepare(`INSERT INTO monitors
@@ -151,9 +165,9 @@ try {
     .bind('browser-worker-stale', 4, 'Stale worker fixture', 'https://stale.invalid', now, now)
     .run();
   await db.prepare(`INSERT INTO machine_live
-    (monitor_id, os, arch, cpu_model, cpu_cores, cpu_usage, mem_used, mem_total, reported_at, updated_at)
+    (agent_id, os, arch, cpu_model, cpu_cores, cpu_usage, mem_used, mem_total, reported_at, updated_at)
     VALUES (?, 'fixture-os', 'x86_64', 'fixture-cpu', 8, 42.3, 4294967296, 8589934592, ?, ?)`)
-    .bind('00000000-0000-4000-8000-000000000001', now, now)
+    .bind('00000000-0000-4000-8000-000000000002', now, now)
     .run();
   await db.prepare('INSERT INTO live_state (id, json, updated_at) VALUES (?, ?, ?)')
     .bind('all', JSON.stringify({
@@ -191,7 +205,9 @@ try {
         response.end(runtimeFixtureBundle.outputFiles[0].text);
         return;
       }
-      if (url.pathname === '/' || /^\/(?:admin|login)(?:\/|$)/.test(url.pathname) || url.pathname.startsWith('/theme/') || url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      // Worker-served routes: the SPA shells, stored theme files, the maintenance script and the API.
+      // 由 Worker 提供的路由：SPA 外壳、存储的主题文件、维护页脚本和 API。
+      if (url.pathname === '/' || /^\/(?:admin|login)(?:\/|$)/.test(url.pathname) || url.pathname.startsWith('/theme/') || url.pathname === '/polaris-maintenance.js' || url.pathname === '/api' || url.pathname.startsWith('/api/')) {
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
         const headers = new Headers(request.headers);
@@ -309,7 +325,11 @@ try {
   // 诊断事件不参与 CDP 请求配对，保留失败时所需的控制台和网络信息。
   // Diagnostic events do not resolve CDP requests; retain console and network details for failures.
   function handleRuntimeEvent(message) {
-    if (message.method === 'Runtime.exceptionThrown') browserErrors.push(message.params.exceptionDetails.text);
+    if (message.method === 'Runtime.exceptionThrown') {
+      const details = message.params.exceptionDetails;
+      const thrown = details.exception?.description ?? details.exception?.value ?? '';
+      browserErrors.push([details.text, details.url, details.lineNumber, thrown].filter(Boolean).join(' | '));
+    }
     if (message.method === 'Runtime.consoleAPICalled') {
       consoleMessages.push(message.params.args.map((item) => item.value ?? item.description ?? '').join(' '));
     }
@@ -481,7 +501,14 @@ try {
   await waitFor(`document.body.innerText.includes('Could not reach the sign-in service') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Retry')`, 'localized session retry');
   assert.equal(sessionFaultInjected, true, 'initial session request was intentionally failed');
   await clickText('Retry');
-  await waitFor(`Boolean(document.querySelector('input[autocomplete="off"]') && document.querySelector('input[autocomplete="username"]') && document.querySelector('input[autocomplete="new-password"]'))`, 'account setup form after retry');
+  // Setup opens on the deployment check; every required binding is present in this fixture.
+  // 初始化先显示部署检查；本夹具已提供全部必需绑定。
+  await waitFor(`document.body.innerText.includes('All required items passed')`, 'deployment check with every requirement met');
+  await clickText('Next');
+  await waitFor(`document.body.innerText.includes('Configure database')`, 'database step after the deployment check');
+  await setInput('input[autocomplete="off"]', 'browser-fixture-bootstrap');
+  await clickText('Verify and continue');
+  await waitFor(`Boolean(document.querySelector('input[autocomplete="username"]') && document.querySelector('input[autocomplete="new-password"]'))`, 'account setup form after the database step');
   await cdp('Fetch.disable');
   const setupText = await evaluate('document.body.innerText');
   const pageDiagnostic = await evaluate('JSON.stringify({url:location.href,title:document.title,root:document.querySelector("#root")?.innerHTML,scripts:[...document.scripts].map((s)=>s.src)})');
@@ -491,7 +518,6 @@ try {
   assert.ok(layout.scrollWidth <= layout.width + 1, `setup page overflows horizontally: ${JSON.stringify(layout)}`);
   checkpoint('real browser rendered setup page');
 
-  await setInput('input[autocomplete="off"]', 'browser-fixture-bootstrap');
   await setInput('input[autocomplete="username"]', 'browser-admin');
   await setInput('input[name="password"]', 'fixture-password-123');
   await setInput('input[name="confirmPassword"]', 'different-password');
@@ -556,7 +582,9 @@ try {
   const checkPublicColumns = layout => {
     assert.equal(layout.boxes.length, 3);
     assert.ok(layout.boxes.every(Boolean), `public header, main and footer exist: ${JSON.stringify(layout)}`);
-    for (const box of layout.boxes) assert.ok(box.left >= -1 && box.right <= layout.viewport + 1 && box.width <= 1121, `public column exceeds viewport or default maximum: ${JSON.stringify(layout)}`);
+    // The default page width is 1440px, so the column fills a 1424px viewport without overflowing.
+    // 默认页宽为 1440px，因此在 1424px 视口中铺满但不溢出。
+    for (const box of layout.boxes) assert.ok(box.left >= -1 && box.right <= layout.viewport + 1 && box.width <= 1440, `public column exceeds viewport or default maximum: ${JSON.stringify(layout)}`);
     assert.ok(Math.max(...layout.boxes.map(box => box.left)) - Math.min(...layout.boxes.map(box => box.left)) <= 1, `public columns share a left edge: ${JSON.stringify(layout)}`);
   };
   checkPublicColumns(await measurePublicColumns());
@@ -667,9 +695,15 @@ try {
     return true;
   })()`);
   await clickText('Save');
-  await waitFor(`document.querySelector('[data-sonner-toast]')?.textContent.includes('Saved')`, 'Sonner toast');
-  const toastTheme = await evaluate(`document.querySelector('[data-sonner-toaster]')?.getAttribute('data-sonner-theme')`);
-  assert.equal(toastTheme, 'dark', 'Sonner follows the resolved dark theme');
+  // On a desktop admin page a successful save lands in the status island, not in a Sonner toast.
+  // 桌面端管理页保存成功后，成功提示进入状态岛，而不是 Sonner 提示。
+  await waitFor(`document.querySelector('[data-island-success]')?.textContent.includes('Saved')`, 'success feedback card');
+  // Sonner only mounts its list while it holds a toast, and desktop success feedback goes to the
+  // island above, so there is no toaster to inspect here. Toast styling stays covered by the
+  // toast-motion stylesheet test.
+  // Sonner 仅在有提示时挂载列表，而桌面端成功提示进入上方状态岛，因此这里没有可检查的容器。
+  // 提示样式由 toast-motion 样式测试覆盖。
+  assert.equal(await evaluate(`Boolean(document.querySelector('[data-sonner-toast]'))`), false, 'desktop success feedback does not duplicate into a Sonner toast');
   const adminMeasure = await measure();
   assert.ok(adminMeasure.scrollWidth <= adminMeasure.width + 1, `admin page overflows: ${JSON.stringify(adminMeasure)}`);
   const adminShot = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
@@ -712,7 +746,7 @@ try {
     `mobile admin top bar still shows the status island: ${JSON.stringify(headerMobile)}`,
   );
   assert.ok(
-    headerMobile.brandText?.startsWith('uptime'),
+    headerMobile.brandText?.startsWith('Uptime Polaris'),
     `mobile admin top bar lost its wordmark: ${JSON.stringify(headerMobile)}`,
   );
   assert.ok(
@@ -808,18 +842,25 @@ try {
   const themeId = 'spa-fixture';
   const themeUuid = '00000000-0000-4000-8000-000000000001';
   const themeFiles = {
+    // Schema 2: one manifest can carry several page themes, each with its own target and entry.
+    // 结构版本 2：一份清单可包含多个页面主题，各自带目标页面和入口。
     'polaris-theme.json': JSON.stringify({
-      schema: 1,
+      schema: 2,
       id: themeId,
       short: themeId,
       name: 'SPA R2 Fixture',
       version: '1.0.0',
-      entry: 'dist/index.html',
-      capabilities: ['public.status', 'public.config', 'public.monitors'],
-      options: [
-        { key: 'headline', label: 'Headline', type: 'string', default: 'fixture default' },
-        { key: 'monitorRef', label: 'Monitor', type: 'monitor' },
-      ],
+      themes: [{
+        id: 'monitor',
+        name: 'Monitor',
+        target: 'monitor',
+        entry: 'dist/index.html',
+        capabilities: ['public.status', 'public.config', 'public.monitors'],
+        options: [
+          { key: 'headline', label: 'Headline', type: 'string', default: 'fixture default' },
+          { key: 'monitorRef', label: 'Monitor', type: 'monitor' },
+        ],
+      }],
     }),
     'dist/index.html': '<!doctype html><html><head><meta charset="utf-8"></head><body><main id="theme-result">Loading theme data</main><script type="module" src="./theme.js"></script></body></html>',
     'dist/theme.js': `Promise.all([window.polarisTheme.read('config'),window.polarisTheme.read('status'),window.polarisTheme.read('monitors')]).then(([config,status,monitors])=>{const result={themeShort:config.theme?.short??null,headline:config.theme_settings?.headline??null,monitorRef:config.theme_settings?.monitorRef??null,statusCount:status.monitors.length,monitorCount:monitors.monitorGroups.flatMap(group=>group.monitorList).length};document.body.dataset.spaThemeResult=JSON.stringify(result);document.querySelector('#theme-result').textContent=JSON.stringify(result);parent.postMessage({type:'spa-theme-r2-result',result},'*')}).catch(error=>{document.body.dataset.spaThemeError=String(error);document.querySelector('#theme-result').textContent=String(error)})`,
@@ -843,25 +884,39 @@ try {
   const themeList = await evaluate(`fetch('/api/themes').then((response)=>response.json())`);
   assert.equal(themeList.storageReady, true, 'theme manager sees its R2 binding');
   const installedTheme = themeList.themes.find((theme) => theme.short === themeId);
-  assert.ok(installedTheme?.versions.length === 1 && installedTheme.hasEntry, `installed theme revision: ${JSON.stringify(installedTheme)}`);
+  // A revision is usable when every theme it defines has its entry in storage.
+  // 版本中定义的每个主题都在存储中具有入口时，该版本才可用。
+  assert.ok(installedTheme?.versions.length === 1 && installedTheme.versions[0].themes.every((theme) => theme.available), `installed theme revision: ${JSON.stringify(installedTheme)}`);
   const themePrefix = installedTheme.versions[0].prefix;
   assert.ok(await (await mf.getR2Bucket('THEMES')).head(`${themePrefix}/dist/index.html`), 'install stored the entry in the isolated R2 bucket');
 
-  await clickText('Settings');
-  await waitFor(`location.pathname === '/admin/themes/${themeId}' && Boolean(document.querySelector('input[type="text"]') && document.querySelector('[aria-label="Monitor"]'))`, 'installed theme configuration');
-  await setInput('input[type="text"]', 'saved from admin UI');
-  await evaluate(`document.querySelector('[aria-label="Monitor"]').click()`);
+  // Applying puts the theme on the page; its options then open in a dialog from the page card.
+  // 先应用主题，其选项随后从页面卡片中的对话框打开。
+  await clickText('Apply');
+  await waitFor(`document.body.innerText.includes('In use')`, 'theme applied to the page');
+  await clickText('Theme options');
+  await waitFor(`Boolean(document.querySelector('[role="dialog"]'))`, 'installed theme configuration');
+  // The headline option renders as an unlabelled text field next to its label; the monitor
+  // option is a select whose trigger shows the current choice.
+  // 标题选项是标签旁的无 aria-label 文本框；监控选项是触发器显示当前值的选择框。
+  await setInput('[role="dialog"] input[type="text"]', 'saved from admin UI');
+  await evaluate(`document.querySelector('[role="dialog"] [data-slot="trigger"]').click()`);
   await waitFor(`[...document.querySelectorAll('[role="option"]')].some((option)=>option.textContent.includes('Unknown source fixture'))`, 'UUID monitor option');
   await evaluate(`(() => [...document.querySelectorAll('[role="option"]')].find((option)=>option.textContent.includes('Unknown source fixture'))?.click())()`);
   const configShot = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile(join(screenshots, 'spa-theme-config.png'), Buffer.from(configShot.data, 'base64'));
-  await clickText('Save');
-  await waitFor(`document.querySelector('[data-sonner-toast]')?.textContent.includes('Theme settings saved.')`, 'theme setting save toast');
-  const savedThemeConfig = await evaluate(`fetch('/api/themes/${themeId}/config').then((response)=>response.json())`);
-  assert.deepEqual(savedThemeConfig.values, { headline: 'saved from admin UI', monitorRef: themeUuid }, 'admin saved the selected monitor UUID');
+  await clickText('Save changes');
+  await waitFor(`document.body.innerText.includes('Changes saved')`, 'theme settings saved inside the editor');
+  // Theme options are stored on the page, not on the theme revision.
+  // 主题选项保存在页面设置里，而不是主题版本上。
+  const savedPresentation = await evaluate(`fetch('/api/admin/presentation').then((response)=>response.json())`);
+  assert.deepEqual(savedPresentation.config.pages.monitor.themeOptions, { headline: 'saved from admin UI', monitorRef: themeUuid }, `admin saved the selected monitor UUID: ${JSON.stringify(savedPresentation.config.pages.monitor)}`);
 
-  await clickLink('Back to themes');
-  await waitFor(`location.pathname === '/admin/themes' && document.body.innerText.includes('SPA R2 Fixture')`, 'theme list after config save');
+  // The editor is a full-screen dialog; closing it returns to the theme list.
+  // 编辑器是全屏对话框，关闭后回到主题列表。
+  await clickText('Close');
+  await waitFor(`!document.querySelector('[role="dialog"]')`, 'theme options dialog closed');
+  await waitFor(`document.body.innerText.includes('SPA R2 Fixture')`, 'theme list after config save');
   const previewRequestStart = networkRequests.length;
   await evaluate(`document.querySelector('button[aria-label="Preview this revision"]').click()`);
   await waitFor(`window.__spaThemePreviewResult?.themeShort === '${themeId}'`, 'sandbox preview SDK public reads');
@@ -875,19 +930,25 @@ try {
   for (const path of ['/api/public/config', '/api/public/status', '/api/public/monitors']) {
     assert.ok(previewPaths.includes(path), `sandbox SDK called the real Worker endpoint ${path}`);
   }
+  // The sandbox previews the page through `?preview=<kind>`, which the Worker answers with
+  // `private, no-store`, so a preview never populates or reads the ordinary public cache.
+  // 沙箱通过 ?preview=<kind> 预览页面，Worker 以 private, no-store 响应，
+  // 因此预览既不会写入也不会命中普通公开缓存。
   const previewConfigResponse = networkRequests.slice(previewRequestStart).find((request) => {
     const url = new URL(request.url);
-    return url.pathname === '/api/public/config' && !url.searchParams.has('fresh');
+    return url.pathname === '/api/public/config' && url.searchParams.get('preview') === 'monitor';
   });
-  assert.ok(previewConfigResponse, 'preview populated the ordinary public config cache before activation');
-  assert.ok(['HIT', 'MISS'].includes(new Headers(previewConfigResponse.headers).get('x-public-cache')), 'preview uses the ordinary cached config path');
+  assert.ok(previewConfigResponse, 'preview read the page config');
+  assert.match(previewConfigResponse.headers['cache-control'] ?? '', /no-store/, 'preview config is never cached');
   const previewShot = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile(join(screenshots, 'spa-theme-preview.png'), Buffer.from(previewShot.data, 'base64'));
   await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1408, y: 30, button: 'left', clickCount: 1 });
   await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1408, y: 30, button: 'left', clickCount: 1 });
   await waitFor(`!document.querySelector('iframe[title="Preview: SPA R2 Fixture"]')`, 'close sandbox preview');
-  await clickText('Activate');
-  await waitFor(`document.body.innerText.includes('Selected')`, 'theme activation');
+  // The theme was applied before its options were edited, so the page is already on it; the
+  // version row says so.
+  // 主题在编辑选项前已应用，页面已经在用它；版本行会显示这一状态。
+  await waitFor(`document.body.innerText.includes('In use')`, 'theme activation');
   const activeShell = await fetch(new URL('/', workerOrigin));
   const activeHtml = await activeShell.text();
   assert.equal(activeShell.status, 200);
@@ -912,9 +973,9 @@ try {
   }
   const activeTheme = await evaluate(`fetch('/api/public/theme').then((response)=>response.json())`);
   assert.equal(activeTheme.short, themeId);
-  await navigate(`${browserOrigin}/admin/themes`, `document.body.innerText.includes('Use built-in page')`, 'active theme manager');
-  await clickText('Use built-in page');
-  await waitFor(`document.querySelector('[data-sonner-toast]')?.textContent.includes('Built-in page restored.')`, 'theme deactivation');
+  await navigate(`${browserOrigin}/admin/themes`, `document.body.innerText.includes('Use built-in')`, 'active theme manager');
+  await clickText('Use built-in');
+  await waitFor(`document.querySelector('[data-island-success]')?.textContent.includes('Monitor page uses the built-in theme.')`, 'theme deactivation');
   const inactiveTheme = await fetch(new URL('/api/public/theme', workerOrigin)).then((response) => response.json());
   assert.equal(inactiveTheme.short, null);
   const builtinShell = await fetch(new URL('/', workerOrigin));
@@ -932,19 +993,19 @@ try {
   }
   await evaluate("localStorage.setItem('uptime-polaris-locale','zh-CN')");
   await cdp('Page.reload');
-  await waitFor(`document.body.innerText.includes(${JSON.stringify(zhMessages.title)}) && document.body.innerText.includes(${JSON.stringify(zhMessages.installedTitle)})`, 'Chinese theme manager');
+  await waitFor(`document.body.innerText.includes(${JSON.stringify(zhMessages.title)}) && document.body.innerText.includes('SPA R2 Fixture') && [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === ${JSON.stringify(zhMessages.apply)})`, 'Chinese theme manager');
   let chineseThemeText = await evaluate('document.body.innerText');
   assert.doesNotMatch(chineseThemeText, /\?{3,}/, 'Chinese theme manager contains no question-mark placeholders');
   const chineseThemeShot = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile(join(screenshots, 'spa-theme-zh-CN.png'), Buffer.from(chineseThemeShot.data, 'base64'));
-  await clickText(zhMessages.activate);
-  await waitFor(`document.querySelector('[data-sonner-toast]')?.textContent.includes(${JSON.stringify(zhMessages.activated)})`, 'Chinese theme activation toast');
+  await clickText(zhMessages.apply);
+  await waitFor(`document.querySelector('[data-island-success]')?.textContent.includes(${JSON.stringify(zhMessages.appliedToast.split('{page}')[0])})`, 'Chinese theme applied toast');
   chineseThemeText = await evaluate('document.body.innerText');
   assert.doesNotMatch(chineseThemeText, /\?{3,}/, 'Chinese activation state contains no question-mark placeholders');
   const activatedChineseShot = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile(join(screenshots, 'spa-theme-zh-CN-activated.png'), Buffer.from(activatedChineseShot.data, 'base64'));
-  await clickText(zhMessages.useBuiltIn);
-  await waitFor(`document.querySelector('[data-sonner-toast]')?.textContent.includes(${JSON.stringify(zhMessages.deactivated)})`, 'Chinese theme deactivation toast');
+  await clickText(zhMessages.restoreBuiltIn);
+  await waitFor(`document.querySelector('[data-island-success]')?.textContent.includes(${JSON.stringify(zhMessages.restoredToast.split('{page}')[0])})`, 'Chinese theme deactivation toast');
   chineseThemeText = await evaluate('document.body.innerText');
   assert.doesNotMatch(chineseThemeText, /\?{3,}/, 'Chinese deactivation state contains no question-mark placeholders');
   const deactivatedChineseShot = await cdp('Page.captureScreenshot', { format: 'png' });
@@ -956,6 +1017,8 @@ try {
   await navigate(`${browserOrigin}/admin/settings`, `location.pathname === '/admin/settings' && Boolean(document.querySelector('[data-slot="input-wrapper"]'))`, 'settings page');
   /* 实际点击触发 HeroUI 的焦点事件；仅调用 focus 不覆盖同一路径。
    * Click to trigger HeroUI focus events; focus() alone does not exercise the same path. */
+  // Focus through the DOM: the field may sit below the fold, where a coordinate click misses.
+  // 通过 DOM 聚焦：字段可能在可视区外，按坐标点击会落空。
   const fieldPoint = await evaluate(`(() => {
     const input = [...document.querySelectorAll('input')].find((el) => el.type === 'text' && el.getBoundingClientRect().width > 40);
     if (!input) return null;
@@ -964,12 +1027,21 @@ try {
     return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
   })()`);
   assert.ok(fieldPoint, 'settings page has a text field to focus');
+  // A real pointer press is what sets :focus-visible; programmatic focus() does not.
+  // 只有真实指针按下才会建立 :focus-visible，程序化 focus() 不会。
   for (const type of ['mousePressed', 'mouseReleased']) {
     await cdp('Input.dispatchMouseEvent', { type, x: fieldPoint.x, y: fieldPoint.y, button: 'left', clickCount: 1 });
   }
   // Wait for HeroUI to finish its focus transition before reading the styles.
   // 等待 HeroUI 完成焦点过渡后再读取样式。
-  await waitFor(`document.activeElement?.tagName === 'INPUT' && document.activeElement.closest('[data-slot="input-wrapper"]')?.getAttribute('data-focus') === 'true'`, 'settings field focus state');
+  // HeroUI paints the focus ring on the wrapper itself rather than flagging it with `data-focus`,
+  // so wait for that ring instead of an attribute.
+  // HeroUI 直接在包装器上绘制焦点环，而不是设置 data-focus 标记，因此等待该环而不是属性。
+  await waitFor(`(() => {
+    const wrapper = document.activeElement?.closest('[data-slot="input-wrapper"]');
+    const shadow = wrapper ? getComputedStyle(wrapper).boxShadow : 'none';
+    return document.activeElement?.tagName === 'INPUT' && shadow && shadow !== 'none';
+  })()`, 'settings field focus state');
   const fieldFocus = await evaluate(`(() => {
     const input = document.activeElement;
     const style = getComputedStyle(input);
@@ -982,7 +1054,6 @@ try {
       outlineWidth: style.outlineWidth,
       boxShadow: style.boxShadow,
       wrapperBoxShadow: wrapperStyle?.boxShadow ?? null,
-      wrapperDataFocus: wrapper?.getAttribute('data-focus') ?? null,
     };
   })()`);
   /*
@@ -1003,13 +1074,11 @@ try {
     `focused settings input must not paint an outline of its own, got style=${fieldFocus.outlineStyle} width=${fieldFocus.outlineWidth} colour=${fieldFocus.outlineColor}`,
   );
   /*
-   * The wrapper keeps the focus feedback. HeroUI marks a focused field with
-   * `data-focus="true"` on the wrapper (not `data-focus-visible`, which it never
-   * sets), and that wrapper's ring is what the operator should see instead.
-   * 包装器保留焦点反馈。HeroUI 在聚焦字段的包装器上设置 data-focus="true"，
-   * 不会设置 data-focus-visible；操作员应看到包装器的焦点框。
+   * The wrapper keeps the focus feedback: HeroUI paints the ring on the wrapper's own
+   * box-shadow, and that is the single ring the operator should see.
+   * 包装器保留焦点反馈：HeroUI 把焦点环绘制在包装器自身的 box-shadow 上，
+   * 这就是操作员应看到的唯一焦点框。
    */
-  assert.equal(fieldFocus.wrapperDataFocus, 'true', 'focused settings field wrapper carries data-focus');
   assert.ok(
     fieldFocus.wrapperBoxShadow && fieldFocus.wrapperBoxShadow !== 'none',
     `focused settings field wrapper must keep its own ring, got ${fieldFocus.wrapperBoxShadow}`,
@@ -1018,7 +1087,7 @@ try {
   await writeFile(join(screenshots, 'spa-settings-field-focus.png'), Buffer.from(focusedFieldShot.data, 'base64'));
   checkpoint('settings field focus paints one ring on the wrapper, none inside the input');
 
-  assert.deepEqual(browserErrors, [], `browser runtime errors: ${browserErrors.join('; ')}`);
+  assert.deepEqual(browserErrors, [], `browser runtime errors: ${JSON.stringify(browserErrors)}`);
   checkpoint('Sonner toast rendered; desktop/mobile admin layout measured');
   console.log(`screenshots: ${screenshots}`);
   exitCode = 0;
