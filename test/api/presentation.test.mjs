@@ -33,8 +33,12 @@ try {
   const first = await write('/api/monitors', 'POST', { name: 'visible monitor', type: 'http', target: 'https://visible.example/path' });
   const second = await write('/api/monitors', 'POST', { name: 'hidden monitor', type: 'http', target: 'https://hidden.example/path' });
   const secondRow = await db.prepare('SELECT num_id FROM monitors WHERE id=?').bind(second.id).first();
+  // New machines default to public, and the create route refuses an explicit is_public while
+  // the machine page is off, so the fixture starts both hidden the way an existing install would.
+  // 新机器默认公开，且机器页关闭时创建接口拒绝显式 is_public，因此这里按既有安装的状态把两台都置为隐藏。
   const machine = await write('/api/admin/agents', 'POST', { name: 'selected machine', probe_enabled: true });
   const hiddenMachine = await write('/api/admin/agents', 'POST', { name: 'hidden machine', probe_enabled: true });
+  await db.prepare('UPDATE agents SET is_public=0').run();
   const manifest = { schema: 2, id: 'fixture-theme', short: 'fixture-theme', name: 'Fixture', version: '1.0.0', themes: [{ id: 'servers', name: 'Servers', target: 'agent', entry: 'index.html', capabilities: ['public.config'], options: [{ key: 'linked', label: 'Linked', type: 'agent' }] }] };
   const prefix = `themes/fixture-theme/1.0.0/${'a'.repeat(64)}/00000000-0000-0000-0000-000000000001`;
   await db.prepare('INSERT INTO themes(short,id,name,version,manifest_json,installed_at,updated_at) VALUES(?,?,?,?,?,?,?)').bind('fixture-theme', 'fixture-theme', 'Fixture', '1.0.0', JSON.stringify(manifest), 1, 1).run();
