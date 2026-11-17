@@ -507,6 +507,9 @@ async function harness() {
     script: built.outputFiles[0].text,
     compatibilityDate: '2025-01-01',
     d1Databases: { DB: 'notify-test' },
+    // Settings live in the CONFIG namespace; without it every settings write is refused.
+    // 设置存放在 CONFIG 命名空间，未绑定时所有设置写入都会被拒绝。
+    kvNamespaces: { CONFIG: 'notify-config' },
   });
 
   // Apply every migration in filename order, as shipped. / 按文件名顺序应用全部迁移。
