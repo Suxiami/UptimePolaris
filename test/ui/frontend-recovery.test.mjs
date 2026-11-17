@@ -89,7 +89,7 @@ function compile(part, name, env) {
   const part=extractFunction(src,'async function openPreview(');
   const requests={}; const previewRequest={current:0}; let visible=null,busy=null;
   const themesApi={preview:(id)=>new Promise(resolve=>requests[id]=resolve)};
-  const fn=compile(part,'openPreview',{previewRequest,themesApi,setPreview:value=>visible=value,setPreviewBusy:value=>busy=value,UnauthorizedError:class extends Error{},login:()=>{},toast:{error:()=>{}},apiErrorMessage:String});
+  const fn=compile(part,'openPreview',{storageReady:true,r2Unavailable:false,checkingStorage:false,previewRequest,themesApi,setPreview:value=>visible=value,setPreviewBusy:value=>busy=value,UnauthorizedError:class extends Error{},login:()=>{},toast:{error:()=>{}},apiErrorMessage:String});
   const a=fn('a','v1','a'), b=fn('b','v1','b');requests.b('B');await b;requests.a('A');await a;assert.equal(visible,'B');assert.equal(busy,null);
   const c=fn('c','v1','c');previewRequest.current++;visible=null;requests.c('C');await c;assert.equal(visible,null);
 }
