@@ -279,11 +279,14 @@ try {
   browser.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
   const activePortFile = join(profileRoot, 'DevToolsActivePort');
   let debugPort;
-  for (let attempt = 0; attempt < 200; attempt++) {
+  // A cold runner can take far longer than ten seconds to bind the debug port, so wait a minute
+  // and report the exit status when it never does.
+  // 冷启动的运行器绑定调试端口可能远超十秒，因此等待一分钟，并在始终失败时报告退出状态。
+  for (let attempt = 0; attempt < 1200 && browser.exitCode === null; attempt++) {
     try { debugPort = Number((await readFile(activePortFile, 'utf8')).split(/\r?\n/, 1)[0]); break; }
     catch { await new Promise((resolveDelay) => setTimeout(resolveDelay, 50)); }
   }
-  assert.ok(Number.isInteger(debugPort) && debugPort > 0, `Chrome DevTools did not start: ${stderr.slice(-1600)}`);
+  assert.ok(Number.isInteger(debugPort) && debugPort > 0, `Chrome DevTools did not start (exit ${browser.exitCode}): ${stderr.slice(-1600)}`);
 
   const targetResponse = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent('about:blank')}`, { method: 'PUT' });
   assert.equal(targetResponse.status, 200);

@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { build } from 'esbuild';
@@ -16,6 +16,9 @@ import { spaAssetService } from '../helpers/spa-assets.mjs';
 // 隔离 Worker/D1 承载真实 API，本地 HTTP 代理提供网页并注入失败响应。
 const owner = crypto.randomUUID();
 const profile = await mkdtemp(join(tmpdir(), 'polaris-agent-controls-'));
+// Screenshots are kept for inspection; a fresh checkout has no artifacts directory yet.
+// 截图会保留以供查看；全新检出的仓库还没有 artifacts 目录。
+await mkdir('artifacts/tmp', { recursive: true });
 await writeFile(join(profile, '.owner'), owner);
 /*
  * The fleet resolves the newest release over the network. Replace that module with a fixed
