@@ -381,11 +381,14 @@ try {
         const value = await evaluate(expression);
         if (value) return value;
       } catch (error) {
-        if (!String(error).includes('Inspected target navigated or closed')) throw error;
+        // A navigation can destroy the context, and a document may have no body yet; both are
+        // transient, so keep polling rather than failing the assertion.
+        // 导航会销毁执行上下文，文档也可能尚无 body；两者都是暂时状态，继续轮询即可。
+        if (!/Inspected target navigated or closed|Cannot read properties of null \(reading 'innerText'\)|Execution context was destroyed/i.test(String(error))) throw error;
       }
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     }
-    const diagnostic = await evaluate(`({url:location.href, text:document.body.innerText.slice(0,500)})`);
+    const diagnostic = await evaluate(`({url:location.href, text:(document.body?.innerText ?? document.documentElement?.textContent ?? '').slice(0,500)})`);
     throw new Error(`Timed out waiting for ${label}; page=${JSON.stringify(diagnostic)}; browser=${browserErrors.join('; ')}; console=${consoleMessages.join('; ')}; failed=${JSON.stringify(networkFailures)}; requests=${JSON.stringify(networkRequests)}`);
   };
   const navigate = async (url, readyExpression, label) => {
