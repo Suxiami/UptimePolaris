@@ -377,19 +377,17 @@ console.log('\npersistence: a successful check writes what a tick writes');
   const afterSecond = await liveEntry(id);
   check('the second reading replaced the first', afterSecond?.ts >= r.json.checked_at, afterSecond);
   /**
-   * The ring is keyed by the check's own timestamp, so a second check in the
-   * same second replaces the first point and one in a later second appends -
-   * both are the tick's behaviour (`buildReading` stamps `t: nowSec`). What
-   * matters here is that the newest point is the second check's, not that the
-   * ring stayed at one entry.
-   * 环按检查自身时间戳索引：同一秒第二次检查替换首个点，后续秒则追加；与 tick 的
-   * buildReading 使用 t: nowSec 一致。此处关键是最新点属于第二次检查，而非环始终只有一个条目。
+   * The stored ring holds transitions only: a second UP reading is not one, so
+   * the row keeps its single point. The per-check view comes from the expanded
+   * history instead, which keeps every evaluated minute.
+   * 存储的环只记录状态变化：第二次仍是 UP，不构成变化，因此行里仍只有一点。
+   * 逐次检查的视图来自展开后的历史，它保留每个已评估的分钟。
    */
   const ringAfter = await ringFor(id);
   check(
-    'the newest ring point is the second check',
-    ringAfter.at(-1)?.t === second.json.checked_at,
-    { ring: ringAfter, second: second.json.checked_at },
+    'a repeated UP reading is not a ring transition',
+    ringAfter.length === 1 && ringAfter[0]?.t === r.json.checked_at,
+    { ring: ringAfter, first: r.json.checked_at },
   );
 
   /**
