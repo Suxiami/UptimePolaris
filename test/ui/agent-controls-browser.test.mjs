@@ -209,8 +209,14 @@ try {
   await command('Page.navigate', { url: origin + '/login' });
   await until('!!document.querySelector("input[autocomplete=username]")');
   assert.equal(await evaluate("fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'agent-ui-test',password:'agent-ui-password'})}).then(response=>response.status)"),200);
+  // The row offers "view detail" only once the machine has reported; assert the fixture row first
+  // so a missing report fails here instead of as a null click later.
+  // 只有机器上报后行内才提供“查看详情”；先断言夹具行存在，让缺少上报在这里失败，
+  // 而不是稍后表现为 null 点击。
+  assert.equal((await db.prepare('SELECT reported_at FROM machine_live WHERE agent_id=?').bind(agent.id).first())?.reported_at > 0, true, 'fixture machine has reported');
   await command('Page.navigate',{url:origin+'/admin/agents'});
   await until("!!document.querySelector('tbody tr')");
+  await until(`!!document.querySelector('tbody button[aria-label=${JSON.stringify(catalog.agents.viewDetail)}]')`);
   await evaluate(`document.querySelector('tbody button[aria-label=${JSON.stringify(catalog.agents.viewDetail)}]').click()`);
   await until(`!!${dialog} && ${dialog}.textContent.includes(${JSON.stringify(catalog.agents.sectionInterfaces)})`);
   assert.equal(await evaluate(`${dialog}.textContent.includes(${JSON.stringify(catalog.agents.sectionInstall)})`),false);

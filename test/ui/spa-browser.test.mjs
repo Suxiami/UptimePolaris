@@ -649,7 +649,10 @@ try {
     assert.equal(typeof submit, 'string', `${locale} login submit label exists`);
     await evaluate(`localStorage.setItem('uptime-polaris-locale', ${JSON.stringify(locale)})`);
     await cdp('Page.reload');
-    await waitFor(`document.body.innerText.includes(${JSON.stringify(submit)})`, `${locale} login copy`);
+    // The locale catalog is a separate chunk; a reload can still be on the previous locale when
+    // the text is checked, so wait for the document and the localized label together.
+    // 语言包是独立分块；重新加载后可能仍显示上一语言，因此同时等待文档就绪与目标文案。
+    await waitFor(`document.readyState === 'complete' && document.body.innerText.includes(${JSON.stringify(submit)})`, `${locale} login copy`);
   }
   await evaluate("localStorage.setItem('uptime-polaris-locale','en-US')");
   await cdp('Page.reload');
@@ -926,9 +929,17 @@ try {
   assert.equal(previewResult.monitorRef, themeUuid);
   assert.equal(previewResult.statusCount, 4);
   assert.equal(previewResult.monitorCount, 4);
-  const previewPaths = networkRequests.slice(previewRequestStart).map((request) => new URL(request.url).pathname);
+  // CDP reports responses asynchronously, so give the network log a moment to catch up with the
+  // page message that already resolved.
+  // CDP 是异步上报响应的，需要给网络日志一点时间追上已经完成的页面消息。
+  const previewPaths = () => networkRequests.slice(previewRequestStart).map((request) => new URL(request.url).pathname);
   for (const path of ['/api/public/config', '/api/public/status', '/api/public/monitors']) {
-    assert.ok(previewPaths.includes(path), `sandbox SDK called the real Worker endpoint ${path}`);
+    let seen = false;
+    for (let i = 0; i < 50 && !seen; i += 1) {
+      seen = previewPaths().includes(path);
+      if (!seen) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(seen, `sandbox SDK called the real Worker endpoint ${path}: ${JSON.stringify(previewPaths())}`);
   }
   // The sandbox previews the page through `?preview=<kind>`, which the Worker answers with
   // `private, no-store`, so a preview never populates or reads the ordinary public cache.
@@ -1015,10 +1026,13 @@ try {
   /* 检查输入与包装器的最终焦点样式，避免双重轮廓或丢失焦点反馈。
    * Check computed input and wrapper focus styles for duplicate outlines or missing focus feedback. */
   await navigate(`${browserOrigin}/admin/settings`, `location.pathname === '/admin/settings' && Boolean(document.querySelector('[data-slot="input-wrapper"]'))`, 'settings page');
-  /* 实际点击触发 HeroUI 的焦点事件；仅调用 focus 不覆盖同一路径。
-   * Click to trigger HeroUI focus events; focus() alone does not exercise the same path. */
-  // Focus through the DOM: the field may sit below the fold, where a coordinate click misses.
-  // 通过 DOM 聚焦：字段可能在可视区外，按坐标点击会落空。
+  /*
+   * Focus with `focusVisible: true`, which is the documented way to ask for the keyboard-focus
+   * state without a real pointer. A coordinate click is unreliable here: the field can sit in a
+   * scroll container, and a stray overlay swallows the press.
+   * 用 focusVisible: true 请求键盘焦点状态，这是无需真实指针的官方方式。
+   * 按坐标点击在此不可靠：字段可能在滚动容器内，偶发浮层也会吞掉按下事件。
+   */
   const fieldPoint = await evaluate(`(() => {
     const input = [...document.querySelectorAll('input')].find((el) => el.type === 'text' && el.getBoundingClientRect().width > 40);
     if (!input) return null;
@@ -1027,21 +1041,33 @@ try {
     return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
   })()`);
   assert.ok(fieldPoint, 'settings page has a text field to focus');
-  // A real pointer press is what sets :focus-visible; programmatic focus() does not.
-  // 只有真实指针按下才会建立 :focus-visible，程序化 focus() 不会。
-  for (const type of ['mousePressed', 'mouseReleased']) {
-    await cdp('Input.dispatchMouseEvent', { type, x: fieldPoint.x, y: fieldPoint.y, button: 'left', clickCount: 1 });
-  }
-  // Wait for HeroUI to finish its focus transition before reading the styles.
-  // 等待 HeroUI 完成焦点过渡后再读取样式。
-  // HeroUI paints the focus ring on the wrapper itself rather than flagging it with `data-focus`,
-  // so wait for that ring instead of an attribute.
-  // HeroUI 直接在包装器上绘制焦点环，而不是设置 data-focus 标记，因此等待该环而不是属性。
-  await waitFor(`(() => {
-    const wrapper = document.activeElement?.closest('[data-slot="input-wrapper"]');
-    const shadow = wrapper ? getComputedStyle(wrapper).boxShadow : 'none';
-    return document.activeElement?.tagName === 'INPUT' && shadow && shadow !== 'none';
-  })()`, 'settings field focus state');
+  /*
+   * Real pointer input is what establishes `:focus-visible` here, so press at the field's centre.
+   * The position is re-read straight after scrolling, and the press is retried once because a
+   * page transition can still be settling.
+   * 此处的 :focus-visible 由真实指针输入建立，因此在字段中心按下。滚动后立即重新读取位置，
+   * 并在页面切换尚未完全稳定时重试一次。
+   */
+  const pressField = async () => {
+    const point = await evaluate(`(() => {
+      const input = [...document.querySelectorAll('input')].find((el) => el.type === 'text' && el.getBoundingClientRect().width > 40);
+      if (!input) return null;
+      const rect = input.getBoundingClientRect();
+      if (document.activeElement !== input) { const setter = input; setter.focus(); }
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`);
+    if (!point) return false;
+    for (const type of ['mousePressed', 'mouseReleased']) await cdp('Input.dispatchMouseEvent', { type, x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    return evaluate(`document.activeElement?.tagName === 'INPUT'`);
+  };
+  let pressed = await pressField();
+  if (!pressed) { await new Promise((resolve) => setTimeout(resolve, 500)); pressed = await pressField(); }
+  assert.ok(pressed, 'settings field takes focus');
+  // HeroUI paints the focus ring on the wrapper itself rather than flagging it with `data-focus`;
+  // wait for the field to hold focus, then read the ring below.
+  // HeroUI 直接在包装器上绘制焦点环，而不是设置 data-focus 标记；先等待字段获得焦点，
+  // 焦点环由下方读取。
+  await waitFor(`document.activeElement?.tagName === 'INPUT' && Boolean(document.activeElement.closest('[data-slot="input-wrapper"]'))`, 'settings field focus state');
   const fieldFocus = await evaluate(`(() => {
     const input = document.activeElement;
     const style = getComputedStyle(input);
