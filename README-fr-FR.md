@@ -221,6 +221,11 @@ D'autres cas sont traités dans le [dépannage](docs/troubleshooting.md). Si un 
 | [Exploitation](docs/operations.md) | Sauvegarde, restauration, mise à jour, conservation des données |
 | [Dépannage](docs/troubleshooting.md) | Diagnostic par symptôme |
 
+## Liens
+
+[LinuxDo](https://linux.do/)
+
 ## Licence
 
 Uptime Polaris est publié sous [licence MIT](LICENSE).
+

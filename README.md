@@ -221,6 +221,11 @@ More cases are in [troubleshooting](docs/troubleshooting.md). If a problem remai
 | [Operations](docs/operations.md) | Backup, restore, upgrade, data retention |
 | [Troubleshooting](docs/troubleshooting.md) | Diagnose by symptom |
 
+## Friend links
+
+[LinuxDo](https://linux.do/)
+
 ## License
 
 Uptime Polaris is released under the [MIT License](LICENSE).
+

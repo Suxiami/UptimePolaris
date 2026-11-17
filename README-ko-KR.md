@@ -221,6 +221,11 @@ Worker의 **Settings**에서 필수 항목인 `ADMIN_TOKEN`, `UPTIME`, `CONFIG` 
 | [운영 가이드](docs/operations.md) | 백업, 복원, 업그레이드, 데이터 보존 |
 | [문제 해결](docs/troubleshooting.md) | 증상별 진단 |
 
+## 관련 링크
+
+[LinuxDo](https://linux.do/)
+
 ## 라이선스
 
 Uptime Polaris는 [MIT 라이선스](LICENSE)로 배포됩니다.
+

@@ -221,6 +221,11 @@ Worker の **Settings** で必須の `ADMIN_TOKEN`、`UPTIME`、`CONFIG` KV 名�
 | [運用ガイド](docs/operations.md) | バックアップ、復元、アップグレード、データ保持 |
 | [トラブルシューティング](docs/troubleshooting.md) | 症状別の切り分け |
 
+## 関連リンク
+
+[LinuxDo](https://linux.do/)
+
 ## ライセンス
 
 Uptime Polaris は [MIT ライセンス](LICENSE)で公開されています。
+

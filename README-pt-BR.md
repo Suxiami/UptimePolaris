@@ -221,6 +221,11 @@ Mais casos estão na [solução de problemas](docs/troubleshooting.md). Se um pr
 | [Operações](docs/operations.md) | Backup, restauração, atualização, retenção de dados |
 | [Solução de problemas](docs/troubleshooting.md) | Diagnóstico por sintoma |
 
+## Links
+
+[LinuxDo](https://linux.do/)
+
 ## Licença
 
 O Uptime Polaris é distribuído sob a [licença MIT](LICENSE).
+

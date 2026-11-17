@@ -221,6 +221,11 @@ pa logs -f
 | [运维指南](docs/operations.md) | 备份、恢复、升级、数据保留 |
 | [常见问题](docs/troubleshooting.md) | 按故障现象排查 |
 
+## 友情链接
+
+[LinuxDo](https://linux.do/)
+
 ## 许可证
 
 Uptime Polaris 采用 [MIT 许可证](LICENSE)。
+

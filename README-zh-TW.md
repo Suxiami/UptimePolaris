@@ -221,6 +221,11 @@ pa logs -f
 | [維運指南](docs/operations.md) | 備份、還原、升級、資料保留 |
 | [常見問題](docs/troubleshooting.md) | 依故障現象排查 |
 
+## 友站連結
+
+[LinuxDo](https://linux.do/)
+
 ## 授權
 
 Uptime Polaris 採用 [MIT 授權](LICENSE)。
+
