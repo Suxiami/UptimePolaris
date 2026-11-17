@@ -206,6 +206,13 @@ try {
     await evaluate(`document.querySelector('tbody button[aria-label=${JSON.stringify(catalog.agents.editTitle)}]').click()`);
     await until(`!!${dialog}?.querySelector('input[maxlength="200"]') && !!${dialog}.querySelector('input[name=sample_interval_secs]')`);
   };
+  // This suite asserts Chinese copy, so pin the locale instead of inheriting the host language.
+  // The console remembers it in localStorage, which has to be set on the origin before navigation.
+  // 本套件断言中文文案，因此固定语言，而不是沿用宿主语言。
+  // 控制台将语言存在 localStorage 中，需在导航前于同源页面写入。
+  await command('Page.navigate', { url: origin + '/login' });
+  await until('document.readyState === "complete"');
+  await evaluate(`localStorage.setItem('uptime-polaris-locale','zh-CN')`);
   await command('Page.navigate', { url: origin + '/login' });
   await until('!!document.querySelector("input[autocomplete=username]")');
   assert.equal(await evaluate("fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'agent-ui-test',password:'agent-ui-password'})}).then(response=>response.status)"),200);

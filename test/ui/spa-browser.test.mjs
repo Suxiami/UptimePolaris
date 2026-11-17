@@ -365,7 +365,10 @@ try {
     } catch (error) {
       throw new Error(`Runtime expression failed (${expression}): ${error.message}`);
     }
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    if (result.exceptionDetails) {
+      const details = result.exceptionDetails;
+      throw new Error([details.text, details.exception?.description, `${details.url ?? ''}:${details.lineNumber ?? ''}`].filter(Boolean).join(' | '));
+    }
     return result.result?.value;
   };
   const waitFor = async (expression, label, timeout = 20_000) => {
@@ -534,7 +537,10 @@ try {
   corruptNextMonitorPayload = true;
   await cdp('Fetch.enable', { patterns: [{ urlPattern: '*api/public/monitors*', requestStage: 'Request' }] });
   await cdp('Page.navigate', { url: `${browserOrigin}/` });
-  await waitFor(`document.body.innerText.includes(${JSON.stringify(frenchMessages.errorPage.title)}) && document.body.innerText.includes(${JSON.stringify(frenchMessages.errorPage.recoveryHint)})`, 'localized safe root render fallback');
+  // The catalog is a chunk of its own; after setting the locale the next document may still be on
+  // the previous language while the new chunk loads, so wait on the ready state as well.
+  // 语言包是独立分块；设置语言后新的文档可能仍显示上一语言直到分块加载完成，因此同时等待就绪状态。
+  await waitFor(`document.readyState === 'complete' && document.body.innerText.includes(${JSON.stringify(frenchMessages.errorPage.title)}) && document.body.innerText.includes(${JSON.stringify(frenchMessages.errorPage.recoveryHint)})`, 'localized safe root render fallback');
   const fallbackText = await evaluate('document.body.innerText');
   assert.equal(renderFaultInjected, true, 'malformed monitor response reached the actual page');
   assert.doesNotMatch(fallbackText, /TypeError|ReferenceError| at .*\.tsx?:\d|node_modules|debug/i, 'root fallback omits private error details');
