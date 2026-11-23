@@ -64,6 +64,7 @@ func main() {
 		c.UpdaterToken = strings.TrimSpace(string(raw))
 	}
 	flag.BoolVar(&c.TrustProxy, "trust-proxy", false, "Trust reverse-proxy HTTPS headers")
+	flag.StringVar(&c.TrustedProxies, "trusted-proxies", env("POLARIS_TRUSTED_PROXIES", ""), "Trusted proxy IP prefixes for X-Forwarded-For, comma-separated")
 	flag.IntVar(&c.Concurrency, "concurrency", c.Concurrency, "Maximum simultaneous probes")
 	migration := flag.String("migration", "", "Offline SQLite-to-PostgreSQL migration: preview or execute")
 	flag.Parse()

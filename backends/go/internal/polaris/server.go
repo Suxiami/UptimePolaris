@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -29,6 +30,7 @@ type Config struct {
 	SetupKey            string
 	Concurrency         int
 	TrustProxy          bool
+	TrustedProxies      string
 	AICredentialKeyFile string
 	UpdaterURL          string
 	UpdaterToken        string
@@ -55,6 +57,7 @@ type App struct {
 	readyOnce          sync.Once
 	aiClient           *http.Client
 	subscriptionClient *http.Client
+	trustedProxies     []netip.Prefix
 }
 
 type apiError struct {
@@ -76,6 +79,10 @@ func NewForOfflineMigration(ctx context.Context, c Config) (*App, error) {
 }
 
 func newApp(ctx context.Context, c Config, offlineMigration bool) (*App, error) {
+	trustedProxies, err := parseTrustedProxies(c.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
 	if c.DataDir == "" {
 		return nil, fmt.Errorf("data-dir is required")
 	}
@@ -109,6 +116,7 @@ func newApp(ctx context.Context, c Config, offlineMigration bool) (*App, error) 
 	ctx, cancel := context.WithCancel(ctx)
 	a := &App{config: c, store: s, mux: http.NewServeMux(), ctx: ctx, cancel: cancel, semaphore: make(chan struct{}, c.Concurrency), icmpAvailable: icmpPermission(), startedAt: time.Now(), setupReady: make(chan struct{})}
 	a.subscriptionClient = newSubscriptionClient()
+	a.trustedProxies = trustedProxies
 	if len(users) > 0 {
 		a.markSetupReady()
 	}

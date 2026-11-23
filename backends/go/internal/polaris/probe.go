@@ -134,12 +134,7 @@ func probeHTTP(ctx context.Context, m, o Object) (CheckResult, error) {
 	case "bearer":
 		req.Header.Set("Authorization", "Bearer "+str(auth, "token"))
 	}
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DisableKeepAlives: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return fmt.Errorf("too many redirects")
-		}
-		return nil
-	}}
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DisableKeepAlives: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}, CheckRedirect: monitorRedirect}
 	response, err := client.Do(req)
 	if err != nil {
 		return result, err

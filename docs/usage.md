@@ -77,6 +77,8 @@ Worker 的检查间隔为 60–86400 秒，超时为 1000–60000 毫秒。Go �
 
 接口返回 HTTP 200，也可能因为正文、响应头或延迟不满足断言而判为异常。先只配必要条件跑出正常基线，再逐项加断言，出问题时更容易定位。
 
+HTTP 跨源跳转只保留 `Accept` 和 `User-Agent`，其余自定义请求头和认证信息都会移除。需保留正文的跨源跳转、HTTPS 降级和带用户名或密码的跳转地址会被拒绝。POST 经 301、302 或 303 转为 GET 后可继续跳转，正文会丢弃。需要认证或正文的接口，请填写最终 URL。这些限制适用于 Worker、Go 和 Agent 来源。
+
 Worker 从 Cloudflare 发起检查，和你的浏览器、内网主机不在同一个网络。目标只开放在局域网时，选一台能访问它的 Agent 作为来源。
 
 ## AI 模型监控
@@ -316,6 +318,8 @@ Use the separate **AI monitoring** page to add channels and models. Each model h
 - **Agent host:** register and start an Agent, then create an Agent host monitor to track availability or define resource rules. An Agent can also execute supported checks for other monitors. An offline or incapable source does not mean the target is healthy. See the [Agent guide](agents.md#agent-guide).
 
 HTTP and TCP monitors support SSL, domain-expiry and DNS add-ons; Go also supports add-ons on UDP, TLS and WebSocket. Worker SSL add-ons query public certificate-transparency records daily and do not verify the certificate currently served or its trust chain. Go and capable Agent sources use a TLS handshake. Unknown results stay unknown; they are not successful checks.
+
+HTTP redirects across origins retain only `Accept` and `User-Agent`, removing credentials and other custom headers. Redirects that retain a body across origins, downgrade HTTPS, or contain URL credentials are rejected. POST requests converted to GET by 301, 302 or 303 can continue without the body. Use the final URL directly when the destination needs authentication or a body. These rules apply to Worker, Go and Agent checks.
 
 ### Groups, public pages and machine view
 

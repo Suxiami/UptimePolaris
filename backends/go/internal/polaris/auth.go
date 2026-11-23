@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"image/png"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -161,10 +160,10 @@ func (a *App) authRoutes() {
 		}
 		name := strings.ToLower(strings.TrimSpace(str(b, "username")))
 		password := str(b, "password")
-		if name == "" || password == "" || len(password) > 4096 {
+		if !usernamePattern.MatchString(name) || password == "" || len(password) > 4096 {
 			return failure("invalid_credentials", 401)
 		}
-		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		ip := a.clientIP(r)
 		keys := []string{digest("ip:" + ip), digest("account:" + name)}
 		now := time.Now().Unix()
 		settings, e := a.settings(r.Context())
@@ -183,10 +182,11 @@ func (a *App) authRoutes() {
 				if limit == nil || now-integer(limit, "started") >= window {
 					limit = Object{"started": now, "count": 0}
 				}
-				limit["count"] = integer(limit, "count") + 1
-				if integer(limit, "count") > max {
+				if integer(limit, "count") >= max {
 					locked = true
+					return nil
 				}
+				limit["count"] = integer(limit, "count") + 1
 				if e = t.put("login_limit", key, limit); e != nil {
 					return e
 				}

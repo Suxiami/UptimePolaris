@@ -743,7 +743,7 @@ func (a *App) monitorIcon(w http.ResponseWriter, r *http.Request, admin bool) er
 	for _, m := range monitors {
 		if integer(m, "num_id") == num && str(m, "type") == "http" {
 			u, err := url.Parse(str(m, "target"))
-			if err != nil || u.Scheme != "http" && u.Scheme != "https" || !publicHost(r.Context(), u.Hostname()) {
+			if err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Hostname() == "" {
 				return failure("not_found", 404)
 			}
 			u.User = nil
@@ -752,8 +752,9 @@ func (a *App) monitorIcon(w http.ResponseWriter, r *http.Request, admin bool) er
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 			req, _ := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-			client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) > 3 || !publicHost(ctx, req.URL.Hostname()) {
+			transport := &http.Transport{DisableKeepAlives: true, DialContext: publicAddressDialer(net.DefaultResolver.LookupNetIP, (&net.Dialer{Timeout: 5 * time.Second}).DialContext)}
+			client := &http.Client{Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) > 3 || req.URL.Scheme != "http" && req.URL.Scheme != "https" || req.URL.User != nil {
 					return fmt.Errorf("unsafe redirect")
 				}
 				return nil
@@ -774,17 +775,4 @@ func (a *App) monitorIcon(w http.ResponseWriter, r *http.Request, admin bool) er
 		}
 	}
 	return failure("not_found", 404)
-}
-func publicHost(ctx context.Context, host string) bool {
-	addresses, e := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if e != nil || len(addresses) == 0 {
-		return false
-	}
-	for _, address := range addresses {
-		ip := address.IP
-		if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-			return false
-		}
-	}
-	return true
 }

@@ -13,6 +13,7 @@ import { abandonDatabaseClaim, claimDatabase, completedOperation, d1HasUsers, da
 import { visibilityRevisionWrite } from '../public/cache';
 import { MAX_AVATAR_BYTES, readAvatarImage, readAvatarInfo, removeAvatar, validAvatarImage, writeAvatar } from './avatar';
 import { databaseConfigured, missingSetupRequirements, setupRequirements } from './setup-requirements';
+import { trustedWriteOrigin } from './origin';
 import {
   clearFailures,
   clearLoginAttempts,
@@ -48,6 +49,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>();
 authRoutes.use('/api/auth/*', async (c, next) => {
   c.header('Cache-Control', 'private, no-store');
   c.header('Pragma', 'no-cache');
+  if (!trustedWriteOrigin(c.req.raw, c.env.ADMIN_TOKEN)) return c.json({ error: 'invalid_origin' }, 403);
   await next();
 });
 

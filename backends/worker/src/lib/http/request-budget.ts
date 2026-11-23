@@ -59,6 +59,10 @@ export async function budgetedFetch(
       await response.body?.cancel().catch(() => {});
       throw new Error('unsupported redirect protocol');
     }
+    if (url.protocol === 'https:' && next.protocol !== 'https:' || next.username || next.password) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error('unsafe redirect');
+    }
     if (next.origin !== url.origin) {
       // 跨源跳转不转发认证信息及其他自定义请求头。
       // Do not forward credentials or other custom headers across origins.
@@ -69,6 +73,10 @@ export async function budgetedFetch(
       body = undefined;
       headers.delete('content-type');
       headers.delete('content-length');
+    }
+    if (next.origin !== url.origin && body != null) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error('unsafe redirect body');
     }
     await response.body?.cancel().catch(() => {});
     url = next;

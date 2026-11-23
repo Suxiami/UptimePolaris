@@ -8,6 +8,7 @@ import { agentRoutes } from './lib/agent/routes';
 import { agentTransportRoutes } from './lib/agent/transport-routes';
 import { authRoutes, currentUser } from './lib/auth/routes';
 import { safeEqual } from './lib/auth/service';
+import { trustedWriteOrigin } from './lib/auth/origin';
 import { dbScopeMiddleware, getDB } from './lib/db/factory';
 import { groupTagRoutes } from './lib/group/routes';
 import { groupManagementRoutes } from './lib/group/management';
@@ -193,6 +194,7 @@ api.use('/api/*', async (c, next) => {
 
   const { user } = await currentUser(c);
   if (user) {
+    if (!trustedWriteOrigin(c.req.raw, c.env.ADMIN_TOKEN)) return c.json({ error: 'invalid_origin' }, 403);
     await next();
     return;
   }

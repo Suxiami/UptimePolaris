@@ -104,6 +104,7 @@ Docker 托管更新要求固定宿主机端口，并关闭容器自动删除。�
 | `POLARIS_DATABASE_URL` | `--database-url` | 数据目录中的 SQLite 文件 |
 | `POLARIS_CONCURRENCY` | `--concurrency` | `32`，允许 1～1024 |
 | `POLARIS_TRUST_PROXY` | `--trust-proxy` | `false` |
+| `POLARIS_TRUSTED_PROXIES` | `--trusted-proxies` | 空；不信任转发的客户端 IP |
 | `POLARIS_SETUP_KEY` | 无 | 初始化凭据；未设置时使用 `POLARIS_ADMIN_TOKEN` |
 | `POLARIS_ADMIN_TOKEN` | 无 | 可选的管理 API Bearer 凭据 |
 | `POLARIS_AI_KEY_FILE` | 无 | AI 渠道与订阅的加密密钥文件；PostgreSQL 使用 AI 监控或订阅时必填，SQLite 默认用数据目录的 `ai-credential.key` |
@@ -111,6 +112,8 @@ Docker 托管更新要求固定宿主机端口，并关闭容器自动删除。�
 PostgreSQL 连接串形如 `postgresql://user:password@host:5432/database?sslmode=verify-full`。启动时创建 Go 自己的表；SQLite 和 PostgreSQL 的数据含义一致。主题资产始终在数据目录里，不会存进 PostgreSQL。
 
 HTTPS 反向代理要保留 `Host`。只有可信代理隔离了后端直连入口，并且能可靠设置 `X-Forwarded-Proto` 时，才启用 `--trust-proxy`。这个设置会让 HTTPS 会话 Cookie 带上 `Secure`，并生成 HTTPS 的 Agent 安装地址。
+
+代理后的登录限流需要识别访客 IP。用 `POLARIS_TRUSTED_PROXIES` 配置逗号分隔的代理 CIDR，例如本机代理使用 `127.0.0.1/32,::1/128`。代理应覆盖或正确追加 `X-Forwarded-For`；服务从右向左跳过受信代理，以首个非受信地址作为客户端。未列入范围的直连请求会忽略转发头。容器部署应填写实际代理地址范围，避免信任整个公网。
 
 备份时先停服务，再备份整个数据目录。PostgreSQL 部署还要备份数据库。切换数据库后保留原数据和主题目录，检查新服务的登录、监控和主题，再结束旧服务。
 
@@ -121,6 +124,8 @@ AI 密钥文件须为受保护的 32 字节原始随机数据，多实例共享�
 匿名 `GET /api/capabilities` 返回 `runtime: "go"`、执行源 `server`、能执行的原生类型和主题文件系统能力。后台仍使用现有的 `/api/monitors`、`/api/overview`、`/api/cron/tick` 和 `/api/cron/sync`。
 
 监控支持 HTTP、TCP、UDP、ICMP、DNS、TLS、WebSocket、Push 和 Agent。最短间隔 5 秒，超时 100～120,000 ms。执行源只接受 `server` 或 `agent`；Agent 来源仍要声明对应探测能力。
+
+HTTP 监控跨源跳转时只保留 `Accept` 和 `User-Agent`，不转发认证信息及其他自定义请求头。需要保留正文的跨源跳转、HTTPS 降级和带用户名或密码的跳转地址会被拒绝。POST 经 301、302 或 303 转为 GET 后可继续跳转，正文会丢弃。需使用凭据或正文的目标，请直接填写最终 URL；Worker 和 Agent 也遵守这些限制。
 
 DNS、TLS 和 WebSocket 的 `options_json` 示例：
 
@@ -204,6 +209,7 @@ Choose SQLite or PostgreSQL during first setup. An explicit selection is saved i
 | `POLARIS_DATABASE_URL` | `--database-url` | SQLite file in the data directory |
 | `POLARIS_CONCURRENCY` | `--concurrency` | `32`; range 1–1024 |
 | `POLARIS_TRUST_PROXY` | `--trust-proxy` | `false` |
+| `POLARIS_TRUSTED_PROXIES` | `--trusted-proxies` | Empty; ignore forwarded client IPs |
 | `POLARIS_SETUP_KEY` | none | Setup credential; falls back to `POLARIS_ADMIN_TOKEN` |
 | `POLARIS_ADMIN_TOKEN` | none | Optional admin API bearer credential |
 | `POLARIS_AI_KEY_FILE` | none | Protected AI and subscription encryption key file; required for AI monitoring or subscriptions on PostgreSQL. SQLite defaults to `ai-credential.key` in the data directory |
@@ -251,9 +257,13 @@ The executable includes the web interface and requires persistent, writable stor
 
 For HTTPS, preserve `Host` at the reverse proxy. Enable `--trust-proxy` only if the backend cannot be reached directly by untrusted clients and the proxy reliably sets `X-Forwarded-Proto`. Stop the service before backing up its data directory; also back up PostgreSQL when used. The full configuration is in the table above, and common backup and deployment guidance is in [operations](../../docs/operations.md#operations-guide).
 
+For login rate limits behind a proxy, set `POLARIS_TRUSTED_PROXIES` to comma-separated proxy CIDRs, such as `127.0.0.1/32,::1/128` for a local proxy. The proxy must replace or correctly append `X-Forwarded-For`. The service walks the chain from right to left, stopping at the first untrusted address. Direct requests from unlisted peers cannot override their client IP. For containers, specify the actual proxy address range; avoid trusting the entire public network.
+
 ### Checks and public APIs
 
 `GET /api/capabilities` exposes the available native check types and sources. Go supports HTTP, TCP, UDP, ICMP, DNS, TLS, WebSocket, Push and Agent monitors. Native ICMP depends on permissions; Agent sources must advertise the required capability. The minimum interval is 5 seconds and the timeout range is 100–120,000 ms. DNS, TLS and WebSocket configuration examples are above. Push accepts POST, ignores `ping`, and reports public latency as `null`.
+
+HTTP monitors retain only `Accept` and `User-Agent` across origins, removing credentials and other custom headers. Cross-origin redirects that retain a request body, HTTPS downgrades and redirect URLs containing credentials are rejected. A POST converted to GET by 301, 302 or 303 can continue without its body. Configure the final URL directly when the target needs credentials or a body. Worker and Agent checks apply the same restrictions.
 
 Agent commands are disabled by default and accept `upgrade`, `restart`, `re_report` and `check_update`. Themes use schema 2 ZIP packages stored in the data directory. See the [theme guide](../../docs/themes.md#english) for installation, configuration and preview.
 
